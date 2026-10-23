@@ -167,6 +167,7 @@ p {
 .landing-logo {
   margin: 0 0 32px;
   line-height: 0;
+  text-align: center;
 }
 .landing-logo .logo {
   height: 64px;

@@ -13,7 +13,7 @@ LightPDF is a static web app for editing PDFs and images entirely in the browser
 
 - **Credits go to the owner (mohha1) only.** No Claude attribution anywhere: no `Co-Authored-By: Claude` or `Claude-Session:` trailers in commits, no "Generated with Claude Code" line in PRs or comments. Commit as `mohha1 <69542851+mohha1@users.noreply.github.com>`, for example `git -c user.name=mohha1 -c user.email=69542851+mohha1@users.noreply.github.com commit …`. The environment's default git author is Claude, so set this every time.
 - **Visual direction: "Monochrome"**, chosen from four proposals. Black on white, square corners, Helvetica at 13px, no accent colour, text-only toolbar (only "Add files" is filled black), a rule under each document name instead of cards. Keep new UI in this style. A dark variant was offered but not requested.
-- **Minimal internal tool**: no marketing sections, no footer. The start page is the logo and the drop area (the owner replaced the heading and its line with the logo).
+- **Minimal internal tool**: no marketing sections, no footer. The start page is the logo and the drop area (the owner replaced the heading and its line with the logo, centred). The header's small LIGHTPDF name is hidden there (`body:has(.landing)`) so the name isn't shown twice; the editor keeps it.
 - **Delete originals** (the owner's request, refined over several turns):
   - Permission is requested when the box is ticked.
   - Files are deleted only after saving or downloading, never before.

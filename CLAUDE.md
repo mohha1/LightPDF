@@ -12,7 +12,8 @@ LightPDF is a static web app for editing PDFs and images entirely in the browser
 ## The owner's preferences
 
 - **Credits go to the owner (mohha1) only.** No Claude attribution anywhere: no `Co-Authored-By: Claude` or `Claude-Session:` trailers in commits, no "Generated with Claude Code" line in PRs or comments. Commit as `mohha1 <69542851+mohha1@users.noreply.github.com>`, for example `git -c user.name=mohha1 -c user.email=69542851+mohha1@users.noreply.github.com commit …`. The environment's default git author is Claude, so set this every time.
-- **Visual direction: "Monochrome"**, chosen from four proposals. Black on white, square corners, Helvetica at 13px, no accent colour, text-only toolbar (only "Add files" is filled black), a rule under each document name instead of cards. Keep new UI in this style. A dark variant was offered but not requested.
+- **Visual direction: "Monochrome"**, chosen from four proposals. Black on white, square corners, Helvetica at 13px, no accent colour, text-only toolbar (only "Add files" is filled black). Keep new UI in this style.
+  - **Flowing file cards** (the owner picked these from three layouts, so that 30 files don't mean scrolling up and down): each file is a hairline-bordered card as wide as its pages, and cards wrap side by side (`.editor-canvas` is a wrapping flex row). A card is at least 248px so its seven actions fit; the header uses `contain: inline-size` so a long name never widens it, and the name's tooltip shows it in full. Actions are a second header row, grey until the card is hovered or focused. A one-page card centres its page. Under 800px cards are full width and pages go back to a grid. Drag a card by its header (not the name or buttons; on touch, by `.doc-grip`) to reorder files; the left and right arrows do the same from the keyboard. A dark variant was offered but not requested.
   - Details that keep it crisp (`styles.css`): native checkboxes, the select and colour swatches are restyled square and black (sliders stay native with `accent-color`: the owner didn't like a square custom one) (`appearance: none`; the check and chevron are data: SVGs, which the CSP's `img-src data:` allows); controls share `--control-height` (32px); icon stroke widths are chosen to land on whole pixels; a hairline separates toolbar groups; hover and state changes fade over `--fast` (120ms), switched off under reduced motion except a slow spinner.
   - Thumbnails are absolutely positioned inside their square `.page-thumb`: as a grid item, `max-height: 100%` didn't resolve and portrait pages were cut off at the bottom.
 - **Minimal internal tool**: no marketing sections, no footer. The start page is the logo and the drop area (the owner replaced the heading and its line with the logo, centred). The header's small LIGHTPDF name (with the bolt mark beside it, `logoMark()`) is hidden there (`body:has(.landing)`) so the name isn't shown twice; the editor keeps it.
@@ -69,7 +70,7 @@ download (ZIP when several files) or filesystem.ts writeOutputs ─▶ optional 
 | `src/editor/model.ts` | Pure document operations: rotate, delete, duplicate, move (drag), extract, merge, split, rename, reorder, sort. |
 | `src/editor/history.ts` | Undo/redo stack. |
 | `src/editor/sources.ts` | `SourceRegistry`: opens files, keeps an in-memory copy, the PDF.js document, the disk handle, and lazy thumbnails (2 at a time). |
-| `src/editor/drag.ts` | Pointer-event drag and drop of pages. On touch, drags start from the `.page-grip` handle. |
+| `src/editor/drag.ts` | Pointer-event drag and drop of pages, and of whole files by their card header. Drop marks: a bar beside a page or card (`drop-before`/`drop-after`), above or below a card that fills its row (`drop-above`/`drop-below`). On touch, drags start from the `.page-grip` or `.doc-grip` handle. |
 | `src/editor/export.ts` | Builds outputs per document for each format and compression. |
 | `src/editor/settings.ts` | Download panel field definitions and conversion to `ExportSettings`. |
 | `src/editor/naming.ts` | Output file names, safe names, "name (2).pdf" de-duplication. |
@@ -128,7 +129,7 @@ download (ZIP when several files) or filesystem.ts writeOutputs ─▶ optional 
   ```sh
   node e2e/make-fixtures.mjs && python3 e2e/make-images.py   # once; needs Pillow
   npm run build && npm run preview &                          # serves http://localhost:4173
-  node e2e/editor.mjs    # 34 checks: editing, drag, undo, formats, compression, JPEG 2000 + CCITT, persistence, mobile
+  node e2e/editor.mjs    # 37 checks: editing, page and file drag, undo, formats, compression, JPEG 2000 + CCITT, persistence, mobile
   node e2e/fs.mjs        # 40 checks: Save as, folders, delete originals, folder and per-file permissions, fallback
   node e2e/offline.mjs   # editing and exporting with the network off
   node e2e/privacy.mjs   # no requests outside the app's origin; works under the CSP in SECURITY.md (sent on every response)

@@ -286,6 +286,11 @@ export function mountEditor(root: HTMLElement): void {
     enablePageDrag(canvas, {
       keysFor: (key) => (selection.has(key) ? selectedInOrder() : [key]),
       onDrop: (keys, target) => commit(model.movePages(project(), new Set(keys), target.doc, target.position)),
+      onDocDrop: (id, before) => {
+        const docs = project();
+        const from = docs.findIndex((doc) => doc.id === id);
+        commit(model.moveDoc(docs, id, (before > from ? before - 1 : before) - from));
+      },
     });
 
     replaceChildren(
@@ -420,10 +425,11 @@ export function mountEditor(root: HTMLElement): void {
 
     return h(
       'section',
-      { class: 'doc', 'data-doc': doc.id, 'data-count': doc.pages.length, 'aria-label': doc.name },
+      { class: 'doc', 'data-doc': doc.id, 'data-index': index, 'data-count': doc.pages.length, 'aria-label': doc.name },
       h(
         'header',
-        { class: 'doc-header' },
+        { class: 'doc-header', title: total > 1 ? 'Drag to move this file' : undefined },
+        h('span', { class: 'doc-grip', 'aria-hidden': 'true' }, icon('grip', 'icon icon-sm')),
         h(
           'button',
           {
@@ -441,7 +447,7 @@ export function mountEditor(root: HTMLElement): void {
           class: 'doc-name',
           value: doc.name,
           'aria-label': 'File name',
-          title: 'Rename',
+          title: `Rename ${doc.name}`,
           spellcheck: 'false',
           onchange: (event: Event) => commit(model.renameDoc(project(), doc.id, (event.target as HTMLInputElement).value)),
           onkeydown: (event: KeyboardEvent) => {
@@ -459,8 +465,8 @@ export function mountEditor(root: HTMLElement): void {
           action('rotateRight', 'Rotate all pages', 'doc-rotate'),
           action('split', 'Split into single pages', 'doc-explode', doc.pages.length < 2),
           action('merge', 'Merge with the next file', 'doc-merge-next', index === total - 1),
-          action('chevronUp', 'Move up', 'doc-up', index === 0),
-          action('chevronDown', 'Move down', 'doc-down', index === total - 1),
+          action('chevronLeft', 'Move left', 'doc-up', index === 0),
+          action('chevronRight', 'Move right', 'doc-down', index === total - 1),
           action('download', 'Download this file', 'doc-download'),
           action('trash', 'Remove this file', 'doc-delete'),
         ),

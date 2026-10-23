@@ -169,11 +169,20 @@ p {
   border-bottom: 1px solid var(--line);
 }
 .wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg);
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   text-decoration: none;
+}
+.logo-mark {
+  width: 20px;
+  height: 20px;
+  flex: none;
 }
 /* The start page shows the logo, so the header doesn't repeat the name there. */
 body:has(.landing) .wordmark {
@@ -313,6 +322,10 @@ body:has(.landing) .wordmark {
   padding: 0 10px;
   flex: none;
 }
+.zoom input,
+.range input {
+  accent-color: var(--fg);
+}
 .zoom input {
   width: 100px;
 }
@@ -328,25 +341,89 @@ body:has(.landing) .wordmark {
   padding: 20px 20px 48px;
   min-width: 0;
 }
+/* Files flow as cards, each as wide as its pages, so small files sit side by side. */
 .editor-canvas {
   display: flex;
-  flex-direction: column;
-  gap: 28px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 20px;
 }
 
 .doc {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 248px;
+  max-width: 100%;
+  padding: 0 20px 20px;
+  border: 1px solid var(--edge);
+  background: var(--bg);
   outline: 1px solid transparent;
-  outline-offset: 6px;
+  outline-offset: 3px;
+  transition: border-color var(--fast);
+}
+.doc:hover,
+.doc:focus-within {
+  border-color: var(--faint);
 }
 .doc.drop-end {
   outline-color: var(--fg);
 }
+.doc.is-moving {
+  opacity: 0.3;
+}
+/* Where a dragged file will land: a bar in the gap before or after a card. */
+.doc.drop-before::before,
+.doc.drop-after::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 2px;
+  background: var(--fg);
+}
+.doc.drop-before::before {
+  left: -12px;
+}
+.doc.drop-after::after {
+  right: -12px;
+}
+.doc.drop-above::before,
+.doc.drop-below::after {
+  content: '';
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  height: 2px;
+  background: var(--fg);
+}
+.doc.drop-above::before {
+  top: -12px;
+}
+.doc.drop-below::after {
+  bottom: -12px;
+}
+/* The header never widens the card (inline-size containment): the pages decide its width. */
 .doc-header {
+  contain: inline-size;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--fg);
+  gap: 2px 8px;
+  margin: 0 -20px;
+  padding: 10px 20px 8px;
+  border-bottom: 1px solid var(--line);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.editor-canvas:has(.doc + .doc) .doc-header {
+  cursor: grab;
+}
+.doc-grip {
+  display: none;
+  margin: -6px 0 -6px -8px;
+  padding: 6px;
+  color: var(--muted);
+  touch-action: none;
 }
 .doc-check,
 .page-check {
@@ -387,13 +464,13 @@ body:has(.landing) .wordmark {
 }
 .doc-name {
   flex: 1;
-  min-width: 80px;
+  min-width: 0;
   padding: 2px 0;
   border: 0;
   border-bottom: 1px solid transparent;
   background: transparent;
   font: inherit;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--fg);
   text-overflow: ellipsis;
@@ -412,20 +489,36 @@ body:has(.landing) .wordmark {
   color: var(--muted);
   white-space: nowrap;
 }
+/* Actions sit in a second row, quiet until the card is hovered or focused. */
 .doc-actions {
+  flex-basis: 100%;
   display: flex;
   gap: 2px;
+  margin-left: -6px;
+}
+.doc-actions .icon-button:not(:disabled) {
+  color: var(--muted);
+}
+.doc:hover .doc-actions .icon-button:not(:disabled),
+.doc:focus-within .doc-actions .icon-button:not(:disabled) {
+  color: var(--fg);
 }
 
 .doc-pages {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--thumb-size, 130px), 1fr));
-  gap: 16px 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
   padding: 16px 0 0;
+}
+/* A single page is narrower than the card's minimum width; centre it. */
+.doc[data-count='1'] .doc-pages {
+  justify-content: center;
 }
 
 .page {
   position: relative;
+  flex: none;
+  width: var(--thumb-size, 150px);
   padding: 6px;
   border: 1px solid transparent;
   cursor: pointer;
@@ -457,10 +550,10 @@ body:has(.landing) .wordmark {
   background: var(--fg);
 }
 .page.drop-before::before {
-  left: -11px;
+  left: -9px;
 }
 .page.drop-after::after {
-  right: -11px;
+  right: -9px;
 }
 
 /* Positioned so max-height resolves against the square (in a grid it didn't,
@@ -563,7 +656,7 @@ body:has(.landing) .wordmark {
 .split-gap {
   position: absolute;
   top: 50%;
-  right: -20px;
+  right: -19px;
   z-index: 3;
   width: 22px;
   height: 22px;
@@ -814,7 +907,7 @@ select.input {
   cursor: default;
 }
 
-/* Square, monochrome versions of the native checkbox and slider. */
+/* A square, monochrome version of the native checkbox. */
 input[type='checkbox'] {
   appearance: none;
   flex: none;
@@ -834,38 +927,6 @@ input[type='checkbox']:disabled {
   border-color: var(--edge);
   background-color: var(--hover);
   cursor: default;
-}
-
-input[type='range'] {
-  appearance: none;
-  height: 16px;
-  margin: 0;
-  background: transparent;
-  cursor: pointer;
-}
-input[type='range']::-webkit-slider-runnable-track {
-  height: 1px;
-  background: var(--fg);
-}
-input[type='range']::-webkit-slider-thumb {
-  appearance: none;
-  width: 9px;
-  height: 15px;
-  margin-top: -7px;
-  border: 0;
-  border-radius: 0;
-  background: var(--fg);
-}
-input[type='range']::-moz-range-track {
-  height: 1px;
-  background: var(--fg);
-}
-input[type='range']::-moz-range-thumb {
-  width: 9px;
-  height: 15px;
-  border: 0;
-  border-radius: 0;
-  background: var(--fg);
 }
 
 .range {
@@ -1118,8 +1179,12 @@ input[type='range']::-moz-range-thumb {
   .split-gap {
     opacity: 1;
   }
-  .page-grip {
+  .page-grip,
+  .doc-grip {
     display: block;
+  }
+  .doc-actions .icon-button:not(:disabled) {
+    color: var(--fg);
   }
 }
 
@@ -1149,16 +1214,37 @@ input[type='range']::-moz-range-thumb {
   .editor-main {
     padding: 14px 12px 28px;
   }
-  .doc-header {
-    flex-wrap: wrap;
+  .editor-canvas {
+    gap: 16px;
   }
-  .doc-actions {
-    width: 100%;
-    justify-content: flex-end;
+  .doc {
+    flex-basis: 100%;
+    min-width: 0;
+    padding: 0 12px 12px;
+  }
+  .doc-header {
+    margin: 0 -12px;
+    padding: 8px 12px 6px;
+  }
+  .doc.drop-above::before {
+    top: -10px;
+  }
+  .doc.drop-below::after {
+    bottom: -10px;
   }
   .doc-pages {
+    display: grid;
     grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
     gap: 12px 18px;
+  }
+  .page {
+    width: auto;
+  }
+  .page.drop-before::before {
+    left: -10px;
+  }
+  .page.drop-after::after {
+    right: -10px;
   }
   /* Keep the cut button inside the card so it can't push the page wider. */
   .split-gap {

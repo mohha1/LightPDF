@@ -113,6 +113,22 @@ await page.mouse.up();
 check('multi-page drag keeps order', (await layout())[1] === 'bravo: bravo.3 bravo.4 alpha.1 bravo.1@90 bravo.2 bravo.5', (await layout())[1]);
 await page.keyboard.press('Escape');
 
+// Drag a whole file by its header (the empty end of the actions row): bravo in front of alpha
+const before = await layout();
+const head = await page.locator('.doc >> nth=1 >> .doc-header').boundingBox();
+const first = await page.locator('.doc >> nth=0').boundingBox();
+await page.mouse.move(head.x + head.width - 24, head.y + head.height - 12);
+await page.mouse.down();
+await page.mouse.move(head.x + head.width - 44, head.y + head.height, { steps: 4 });
+await page.mouse.move(first.x + 20, first.y + first.height / 2, { steps: 8 });
+await page.waitForTimeout(100);
+check('file drag marks where it lands', await page.$eval('.doc', (d) => d.classList.contains('drop-before')));
+await page.screenshot({ path: SHOT('dragging-file') });
+await page.mouse.up();
+check('drag moves a whole file', JSON.stringify(await layout()) === JSON.stringify([before[1], before[0]]), JSON.stringify(await layout()));
+await page.click('.tool:has-text("Undo")');
+check('undo file drag', JSON.stringify(await layout()) === JSON.stringify(before));
+
 // Split with scissors after bravo page 2
 await page.hover(card(1, 1));
 await page.click(`${card(1, 1)} >> .split-gap`);

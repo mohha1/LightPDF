@@ -1,4 +1,5 @@
 import { h } from './dom';
+import { logoMark } from './logo';
 
 const REPOSITORY_URL = 'https://github.com/mohha1/LightPDF';
 
@@ -6,7 +7,7 @@ export function renderHeader(): HTMLElement {
   return h(
     'header',
     { class: 'site-header' },
-    h('a', { class: 'wordmark', href: './' }, 'LightPDF'),
+    h('a', { class: 'wordmark', href: './' }, logoMark(), 'LightPDF'),
     h(
       'span',
       { class: 'header-meta' },

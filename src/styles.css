@@ -169,11 +169,20 @@ p {
   border-bottom: 1px solid var(--line);
 }
 .wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg);
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   text-decoration: none;
+}
+.logo-mark {
+  width: 20px;
+  height: 20px;
+  flex: none;
 }
 /* The start page shows the logo, so the header doesn't repeat the name there. */
 body:has(.landing) .wordmark {
@@ -312,6 +321,10 @@ body:has(.landing) .wordmark {
   display: inline-flex;
   padding: 0 10px;
   flex: none;
+}
+.zoom input,
+.range input {
+  accent-color: var(--fg);
 }
 .zoom input {
   width: 100px;
@@ -814,7 +827,7 @@ select.input {
   cursor: default;
 }
 
-/* Square, monochrome versions of the native checkbox and slider. */
+/* A square, monochrome version of the native checkbox. */
 input[type='checkbox'] {
   appearance: none;
   flex: none;
@@ -834,38 +847,6 @@ input[type='checkbox']:disabled {
   border-color: var(--edge);
   background-color: var(--hover);
   cursor: default;
-}
-
-input[type='range'] {
-  appearance: none;
-  height: 16px;
-  margin: 0;
-  background: transparent;
-  cursor: pointer;
-}
-input[type='range']::-webkit-slider-runnable-track {
-  height: 1px;
-  background: var(--fg);
-}
-input[type='range']::-webkit-slider-thumb {
-  appearance: none;
-  width: 9px;
-  height: 15px;
-  margin-top: -7px;
-  border: 0;
-  border-radius: 0;
-  background: var(--fg);
-}
-input[type='range']::-moz-range-track {
-  height: 1px;
-  background: var(--fg);
-}
-input[type='range']::-moz-range-thumb {
-  width: 9px;
-  height: 15px;
-  border: 0;
-  border-radius: 0;
-  background: var(--fg);
 }
 
 .range {

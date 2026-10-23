@@ -341,20 +341,23 @@ body:has(.landing) .wordmark {
   padding: 20px 20px 48px;
   min-width: 0;
 }
-/* Files flow as cards, each as wide as its pages, so small files sit side by side. */
+/* Files are cards on a grid of equal columns that always fills the row. The
+   editor sets --cols from the width and thumbnail size, and each card's --span
+   (one column per page, at most the full row); its pages share those columns. */
 .editor-canvas {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 20px;
+  --gap: 20px;
+  --pad: 16px;
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr));
+  gap: var(--gap);
 }
 
 .doc {
   position: relative;
-  flex: 0 1 auto;
-  min-width: 248px;
-  max-width: 100%;
-  padding: 0 20px 20px;
+  grid-column: span var(--span, 1);
+  min-width: 0;
+  container-type: inline-size;
+  padding: 0 var(--pad) var(--pad);
   border: 1px solid var(--edge);
   background: var(--bg);
   outline: 1px solid transparent;
@@ -371,6 +374,9 @@ body:has(.landing) .wordmark {
 .doc.is-moving {
   opacity: 0.3;
 }
+.doc.menu-open {
+  z-index: 5;
+}
 /* Where a dragged file will land: a bar in the gap before or after a card. */
 .doc.drop-before::before,
 .doc.drop-after::after {
@@ -382,10 +388,10 @@ body:has(.landing) .wordmark {
   background: var(--fg);
 }
 .doc.drop-before::before {
-  left: -12px;
+  left: calc(var(--gap) / -2 - 2px);
 }
 .doc.drop-after::after {
-  right: -12px;
+  right: calc(var(--gap) / -2 - 2px);
 }
 .doc.drop-above::before,
 .doc.drop-below::after {
@@ -397,20 +403,18 @@ body:has(.landing) .wordmark {
   background: var(--fg);
 }
 .doc.drop-above::before {
-  top: -12px;
+  top: calc(var(--gap) / -2 - 2px);
 }
 .doc.drop-below::after {
-  bottom: -12px;
+  bottom: calc(var(--gap) / -2 - 2px);
 }
-/* The header never widens the card (inline-size containment): the pages decide its width. */
 .doc-header {
-  contain: inline-size;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 2px 8px;
-  margin: 0 -20px;
-  padding: 10px 20px 8px;
+  margin: 0 calc(var(--pad) * -1);
+  padding: 10px var(--pad) 8px;
   border-bottom: 1px solid var(--line);
   user-select: none;
   -webkit-user-select: none;
@@ -489,11 +493,24 @@ body:has(.landing) .wordmark {
   color: var(--muted);
   white-space: nowrap;
 }
-/* Actions sit in a second row, quiet until the card is hovered or focused. */
-.doc-actions {
+/* Actions and the page count sit in a second row; the actions stay quiet
+   until the card is hovered or focused. */
+.doc-bar {
   flex-basis: 100%;
   display: flex;
-  gap: 2px;
+  align-items: center;
+  gap: 8px;
+}
+.doc-bar .doc-meta {
+  margin-left: auto;
+}
+@container (max-width: 165px) {
+  .doc-bar .doc-meta {
+    display: none;
+  }
+}
+.doc-actions {
+  display: flex;
   margin-left: -6px;
 }
 .doc-actions .icon-button:not(:disabled) {
@@ -505,20 +522,45 @@ body:has(.landing) .wordmark {
 }
 
 .doc-pages {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  padding: 16px 0 0;
+  display: grid;
+  grid-template-columns: repeat(var(--span, 1), minmax(0, 1fr));
+  gap: 12px;
+  padding: 12px 0 0;
 }
-/* A single page is narrower than the card's minimum width; centre it. */
-.doc[data-count='1'] .doc-pages {
-  justify-content: center;
+
+/* The menu behind a card's "More" button. */
+.menu {
+  position: absolute;
+  z-index: 10;
+  min-width: 200px;
+  padding: 4px 0;
+  border: 1px solid var(--fg);
+  background: var(--bg);
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.1);
+  animation: fade-in 120ms ease-out;
+}
+.menu-item {
+  display: block;
+  width: 100%;
+  padding: 7px 12px;
+  border: 0;
+  background: none;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.menu-item:hover:not(:disabled),
+.menu-item:focus-visible {
+  background: var(--hover);
+  outline: none;
+}
+.menu-item:disabled {
+  color: var(--faint);
+  cursor: default;
 }
 
 .page {
   position: relative;
-  flex: none;
-  width: var(--thumb-size, 150px);
   padding: 6px;
   border: 1px solid transparent;
   cursor: pointer;
@@ -550,10 +592,10 @@ body:has(.landing) .wordmark {
   background: var(--fg);
 }
 .page.drop-before::before {
-  left: -9px;
+  left: -7px;
 }
 .page.drop-after::after {
-  right: -9px;
+  right: -7px;
 }
 
 /* Positioned so max-height resolves against the square (in a grid it didn't,
@@ -656,11 +698,11 @@ body:has(.landing) .wordmark {
 .split-gap {
   position: absolute;
   top: 50%;
-  right: -19px;
+  right: -16px;
   z-index: 3;
-  width: 22px;
-  height: 22px;
-  margin-top: -11px;
+  width: 20px;
+  height: 20px;
+  margin-top: -10px;
   display: grid;
   place-items: center;
   border: 0;
@@ -1215,38 +1257,14 @@ input[type='checkbox']:disabled {
     padding: 14px 12px 28px;
   }
   .editor-canvas {
-    gap: 16px;
-  }
-  .doc {
-    flex-basis: 100%;
-    min-width: 0;
-    padding: 0 12px 12px;
+    --gap: 12px;
+    --pad: 12px;
   }
   .doc-header {
-    margin: 0 -12px;
-    padding: 8px 12px 6px;
+    padding-top: 8px;
+    padding-bottom: 6px;
   }
-  .doc.drop-above::before {
-    top: -10px;
-  }
-  .doc.drop-below::after {
-    bottom: -10px;
-  }
-  .doc-pages {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
-    gap: 12px 18px;
-  }
-  .page {
-    width: auto;
-  }
-  .page.drop-before::before {
-    left: -10px;
-  }
-  .page.drop-after::after {
-    right: -10px;
-  }
-  /* Keep the cut button inside the card so it can't push the page wider. */
+  /* The card's padding is too narrow for the cut button, so it goes inside the page. */
   .split-gap {
     top: auto;
     right: 4px;

@@ -81,6 +81,8 @@ download (ZIP when several files) or filesystem.ts writeOutputs ─▶ optional 
 | `vite.config.ts` | `base: './'`; a small plugin that writes `sw.js`, caching every built file for offline use. |
 | `tests/` | Unit tests for core, model, history and naming. |
 | `e2e/` | Browser tests (see below). Not run in CI. |
+| `docs/images/` | README logo (`logo.svg`, `logo-dark.svg`; text outlined from Liberation Sans Bold), editor screenshot, and `social-preview.png` (1280×640) for the repository's social preview setting. |
+| `SECURITY.md` | Security model, recommended hosting headers (tested CSP), how to report a vulnerability. Keep it in step with what the app stores and requests. |
 | `.github/workflows/` | `ci.yml` (test + build on push/PR); `pages.yml` (manual GitHub Pages deploy; Pages must be set to "GitHub Actions" first). |
 
 ## Things that bite
@@ -116,6 +118,7 @@ download (ZIP when several files) or filesystem.ts writeOutputs ─▶ optional 
   node e2e/editor.mjs    # 33 checks: editing, drag, undo, formats, compression, persistence, mobile
   node e2e/fs.mjs        # 33 checks: Save as, folders, delete originals, permissions, fallback
   node e2e/offline.mjs   # editing and exporting with the network off
+  node e2e/privacy.mjs   # no requests outside the app's origin; works under the CSP in SECURITY.md
   ```
   - Playwright comes from a global install (`npm root -g`), or set `PLAYWRIGHT_DIR`. In the cloud environment, Chromium is preinstalled; don't run `playwright install`.
   - Screenshots and downloads go to `e2e/.output/`, which is gitignored along with `e2e/fixtures/`.

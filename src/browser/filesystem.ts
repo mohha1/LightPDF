@@ -14,7 +14,7 @@ declare global {
   interface Window {
     showOpenFilePicker?(options?: { multiple?: boolean; types?: FilePickerType[]; id?: string }): Promise<FileSystemFileHandle[]>;
     showSaveFilePicker?(options?: { suggestedName?: string; types?: FilePickerType[]; id?: string }): Promise<FileSystemFileHandle>;
-    showDirectoryPicker?(options?: { mode?: 'read' | 'readwrite'; id?: string }): Promise<FileSystemDirectoryHandle>;
+    showDirectoryPicker?(options?: { mode?: 'read' | 'readwrite'; id?: string; startIn?: FileSystemHandle }): Promise<FileSystemDirectoryHandle>;
   }
   interface FileSystemHandle {
     queryPermission?(descriptor: { mode: 'read' | 'readwrite' }): Promise<PermissionState>;
@@ -167,16 +167,65 @@ export interface DeleteResult {
   kept: Array<{ name: string; reason: string }>;
 }
 
-/** The files this page may not yet change or delete. */
+/**
+ * Folders the user allowed this page to change, so the originals inside them
+ * can be deleted without asking for each file. Kept for this visit only.
+ */
+const folders: FileSystemDirectoryHandle[] = [];
+
+interface FolderPlace {
+  folder: FileSystemDirectoryHandle;
+  /** Folder names down to the file, then the file name. */
+  path: string[];
+}
+
+/** Where this file is inside a folder the page may change, if it is in one. */
+async function placeInFolder(handle: FileSystemFileHandle): Promise<FolderPlace | null> {
+  for (const folder of folders) {
+    if ((await folder.queryPermission?.({ mode: 'readwrite' }).catch(() => 'prompt')) !== 'granted') continue;
+    const path = await folder.resolve(handle).catch(() => null);
+    if (path?.length) return { folder, path };
+  }
+  return null;
+}
+
+/** The files this page may not yet change or delete, on their own or through their folder. */
 export async function lacksWriteAccess(handles: FileSystemFileHandle[]): Promise<FileSystemFileHandle[]> {
-  const states = await Promise.all(handles.map((handle) => handle.queryPermission?.({ mode: 'readwrite' }).catch(() => 'prompt')));
-  return handles.filter((_, i) => states[i] !== 'granted');
+  const allowed = await Promise.all(
+    handles.map(
+      async (handle) =>
+        (await handle.queryPermission?.({ mode: 'readwrite' }).catch(() => 'prompt')) === 'granted' ||
+        (await placeInFolder(handle)) !== null,
+    ),
+  );
+  return handles.filter((_, i) => !allowed[i]);
 }
 
 /**
  * Asks for permission to change these files, so they can be deleted later
- * without asking again. Browsers only show the prompt right after a click,
- * so call this synchronously from a click or change handler.
+ * without asking again. With `folder` and two or more files, it first asks
+ * once for the folder they're in (the dialog opens there), then asks for any
+ * file outside it one by one. That's also the fallback when the folder dialog
+ * is cancelled, or the browser won't share a folder such as Downloads or
+ * Desktop. Browsers only ask right after a click, so call this straight from
+ * a click or change handler. Resolves to the files that are still not allowed.
+ */
+export async function requestAccess(handles: FileSystemFileHandle[], { folder = true } = {}): Promise<FileSystemFileHandle[]> {
+  let pending = await lacksWriteAccess(handles);
+  if (folder && pending.length > 1 && typeof window.showDirectoryPicker === 'function') {
+    try {
+      folders.push(await window.showDirectoryPicker({ mode: 'readwrite', startIn: pending[0] }));
+      pending = await lacksWriteAccess(pending);
+    } catch {
+      // Cancelled or refused: ask for each file instead.
+    }
+  }
+  return requestWriteAccess(pending);
+}
+
+/**
+ * Asks for permission to change each of these files. Browsers only show the
+ * prompt right after a click, so call this synchronously from a click handler.
  * Resolves to the files that are still not allowed.
  */
 export function requestWriteAccess(handles: FileSystemFileHandle[]): Promise<FileSystemFileHandle[]> {
@@ -216,12 +265,14 @@ export async function deleteFiles(
       result.kept.push({ name: handle.name, reason: 'it was replaced by the saved file' });
       continue;
     }
-    if (!(await mayWrite(handle, ask))) {
+    const place = await placeInFolder(handle);
+    if (!place && !(await mayWrite(handle, ask))) {
       result.needPermission.push(handle);
       continue;
     }
     try {
-      await handle.remove!();
+      if (place) await removeFromFolder(place);
+      else await handle.remove!();
       result.deleted.push(handle.name);
       result.removed.push(handle);
     } catch (error) {
@@ -230,6 +281,13 @@ export async function deleteFiles(
     }
   }
   return result;
+}
+
+/** Deletes a file through a folder the page may change. */
+async function removeFromFolder({ folder, path }: FolderPlace): Promise<void> {
+  let parent = folder;
+  for (const name of path.slice(0, -1)) parent = await parent.getDirectoryHandle(name);
+  await parent.removeEntry(path[path.length - 1]);
 }
 
 async function isAny(handle: FileSystemFileHandle, others: FileSystemFileHandle[]): Promise<boolean> {

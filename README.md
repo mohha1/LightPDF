@@ -82,7 +82,8 @@ Download settings are remembered in your browser, except **Delete originals**, w
 
 <br>
 
-- Ticking the box asks your browser for permission to change the files you added, straight away. Files added later are asked for as they come in, with an **Allow** link if the browser needs another click.
+- Ticking the box asks your browser for permission to change the files you added, straight away. With several files, it asks once for the folder they're in: the folder dialog opens there, so you only confirm it. Files outside that folder are asked for one by one, and so are all of them if you cancel the folder dialog. Browsers won't share whole system folders such as Downloads, Desktop or Documents, so files directly in one of those are also asked for one by one. Only the files you added are ever deleted, never anything else in the folder.
+- Files added later are asked for as they come in, unless they're in a folder you already allowed. If the browser needs another click, an **Allow** link appears.
 - Nothing is deleted until you save or download. After **Save as…** the originals are deleted as soon as the file is written; after **Download**, as soon as the download starts.
 - A browser can't tell a page whether a download finished. If you cancel it or it fails, use **Download again** before closing the tab: LightPDF keeps a copy of every file in memory until then.
 - A saved file that replaces one of the originals is never deleted.

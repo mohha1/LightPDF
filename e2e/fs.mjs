@@ -9,22 +9,45 @@ const MOCKS = () => {
   const root = () => navigator.storage.getDirectory();
   const dir = async (name) => (await root()).getDirectoryHandle(name, { create: true });
   window.__test = { open: [], saveDir: 'out', saveName: null, suggested: null };
-  window.showOpenFilePicker = async () => {
-    const originals = await dir('originals');
-    return Promise.all(window.__test.open.map((name) => originals.getFileHandle(name)));
-  };
+  // Names are in the "originals" folder unless given as "folder/name".
+  window.showOpenFilePicker = async () =>
+    Promise.all(
+      window.__test.open.map(async (name) => {
+        const [folder, file] = name.includes('/') ? name.split('/') : ['originals', name];
+        return (await dir(folder)).getFileHandle(file);
+      }),
+    );
   window.showSaveFilePicker = async ({ suggestedName }) => {
     window.__test.suggested = suggestedName;
     return (await dir(window.__test.saveDir)).getFileHandle(window.__test.saveName ?? suggestedName, { create: true });
   };
-  window.showDirectoryPicker = async () => dir(window.__test.saveDir);
+  // With startIn (asking for the originals' folder), it opens in that file's
+  // folder and the user picks it, which also allows changing it, as in Chrome.
+  // folderAnswer 'cancel' stands for cancelling, or a folder the browser won't
+  // share (Downloads, Desktop, Documents).
+  window.showDirectoryPicker = async (options) => {
+    if (!options?.startIn) return dir(window.__test.saveDir);
+    if (!navigator.userActivation.isActive) throw new DOMException('User activation is required', 'SecurityError');
+    window.__test.folderRequests++;
+    if (window.__test.folderAnswer === 'cancel') throw new DOMException('The user aborted a request.', 'AbortError');
+    for (const name of ['originals', 'other']) {
+      const folder = await dir(name);
+      if (await folder.resolve(options.startIn)) {
+        granted.add(name);
+        return folder;
+      }
+    }
+    throw new DOMException('The user aborted a request.', 'AbortError');
+  };
 
   // Chrome's rules for files the user opened: read-only until the user
   // allows editing, and the prompt is only allowed right after a click.
   const granted = new Set();
   window.__test.requests = 0;
+  window.__test.folderRequests = 0;
+  window.__test.folderAnswer = null;
   window.__test.deny = false;
-  window.__test.revokeAll = () => { granted.clear(); window.__test.requests = 0; };
+  window.__test.revokeAll = () => { granted.clear(); window.__test.requests = 0; window.__test.folderRequests = 0; };
   const proto = FileSystemHandle.prototype;
   const remove = proto.remove;
   proto.queryPermission = async function () {
@@ -42,6 +65,12 @@ const MOCKS = () => {
     if (!granted.has(this.name)) return Promise.reject(new DOMException('Not allowed', 'NotAllowedError'));
     return remove.call(this);
   };
+  // Removing a file through a folder needs permission for that folder (the private root is the test's own).
+  const removeEntry = FileSystemDirectoryHandle.prototype.removeEntry;
+  FileSystemDirectoryHandle.prototype.removeEntry = function (...args) {
+    if (this.name && !granted.has(this.name)) return Promise.reject(new DOMException('Not allowed', 'NotAllowedError'));
+    return removeEntry.apply(this, args);
+  };
 };
 
 const browser = await chromium.launch();
@@ -53,18 +82,27 @@ page.on('pageerror', (e) => errors.push(String(e)));
 page.on('dialog', (d) => d.accept());
 
 const b64 = (name) => readFileSync(`${FIXTURES}${name}`).toString('base64');
+/** Starts afresh: no permissions, and these fixtures in "originals" (or "folder/name"). */
 async function putOriginals(names) {
-  await page.evaluate(async (files) => {
+  await page.evaluate(() => {
     window.__test.revokeAll();
+    window.__test.folderAnswer = null;
+  });
+  await page.evaluate(async () => {
     const root = await navigator.storage.getDirectory();
-    for (const name of ['originals', 'out', 'out2']) await root.removeEntry(name, { recursive: true }).catch(() => {});
-    const dir = await root.getDirectoryHandle('originals', { create: true });
-    for (const [name, data] of files) {
-      const stream = await (await dir.getFileHandle(name, { create: true })).createWritable();
-      await stream.write(Uint8Array.from(atob(data), (c) => c.charCodeAt(0)));
-      await stream.close();
-    }
-  }, names.map((n) => [n, b64(n)]));
+    for (const name of ['originals', 'other', 'out', 'out2']) await root.removeEntry(name, { recursive: true }).catch(() => {});
+  });
+  for (const name of names) await putFile(name, name.split('/').pop());
+}
+/** Writes a fixture as "folder/name" (default folder: originals) without touching permissions. */
+async function putFile(name, fixture) {
+  await page.evaluate(async ([path, data]) => {
+    const [folder, file] = path.includes('/') ? path.split('/') : ['originals', path];
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle(folder, { create: true });
+    const stream = await (await dir.getFileHandle(file, { create: true })).createWritable();
+    await stream.write(Uint8Array.from(atob(data), (c) => c.charCodeAt(0)));
+    await stream.close();
+  }, [name, b64(fixture)]);
 }
 const list = (dirName) =>
   page.evaluate(async (name) => {
@@ -106,8 +144,8 @@ check('save as button shown', await page.isVisible('.btn-save'));
 // 1. Merge, delete originals, save as one file
 await page.click('.tool >> text=Merge all');
 await page.check('#field-deleteOriginals');
-await page.waitForFunction(() => window.__test.requests === 2);
-check('permission asked when ticking', true);
+await page.waitForFunction(() => window.__test.folderRequests === 1);
+check('permission asked once, for the folder, when ticking', (await page.evaluate(() => window.__test.requests)) === 0);
 await page.waitForFunction(() => document.querySelector('.export-warning') && !document.querySelector('.export-warning').hidden);
 check('warning shown without Allow', !(await page.isVisible('.warning-action')), await page.textContent('.export-warning'));
 check('nothing deleted when ticking', (await list('originals')).length === 2);
@@ -151,7 +189,7 @@ await putOriginals(['alpha.pdf', 'bravo.pdf']);
 await open(['alpha.pdf', 'bravo.pdf']);
 check('option not remembered', !(await page.isChecked('#field-deleteOriginals')));
 await page.check('#field-deleteOriginals');
-await page.waitForFunction(() => window.__test.requests === 2);
+await page.waitForFunction(() => window.__test.folderRequests === 1);
 check('nothing deleted before downloading', (await list('originals')).length === 2);
 const [zip] = await Promise.all([page.waitForEvent('download'), page.click('.btn-action')]);
 await page.waitForSelector('.dialog >> text=Deleted');
@@ -186,11 +224,49 @@ check('both deleted after saving', /Deleted alpha\.pdf and bravo\.pdf/.test(awai
 await closeDialog();
 await page.evaluate(() => { window.__test.saveDir = 'out'; });
 
+// 4c. Folder dialog cancelled (or a folder the browser won't share): asked per file instead
+await page.uncheck('#field-deleteOriginals');
+await page.click('.tool >> text=Start over');
+await putOriginals(['alpha.pdf', 'bravo.pdf']);
+await page.evaluate(() => { window.__test.folderAnswer = 'cancel'; });
+await open(['alpha.pdf', 'bravo.pdf']);
+await page.check('#field-deleteOriginals');
+await page.waitForFunction(() => window.__test.requests === 2);
+check('cancelled folder falls back to each file', (await page.evaluate(() => window.__test.folderRequests)) === 1);
+await page.waitForFunction(() => document.querySelector('.export-warning') && !document.querySelector('.export-warning').hidden);
+check('fallback leaves nothing to allow', !(await page.isVisible('.warning-action')), await page.textContent('.export-warning'));
+await page.click('.btn-save');
+await page.waitForSelector('.dialog >> text=Saved');
+check('fallback: both deleted after saving', /Deleted alpha\.pdf and bravo\.pdf/.test(await dialogText()) && (await list('originals')).length === 0, await dialogText());
+await closeDialog();
+
+// 4d. Files from two folders: one prompt for the first folder, per file for the rest;
+// a file added later from the allowed folder needs no prompt
+await page.uncheck('#field-deleteOriginals');
+await page.click('.tool >> text=Start over');
+await putOriginals(['alpha.pdf', 'bravo.pdf', 'other/form.pdf']);
+await open(['alpha.pdf', 'bravo.pdf', 'other/form.pdf']);
+await page.check('#field-deleteOriginals');
+await page.waitForFunction(() => window.__test.requests === 1);
+check('folder covers its files, the other file is asked for', (await page.evaluate(() => window.__test.folderRequests)) === 1);
+await putFile('extra.pdf', 'alpha.pdf');
+await open(['extra.pdf']);
+await page.waitForTimeout(300);
+check('file added later from the allowed folder needs no prompt', (await page.evaluate(() => window.__test.requests)) === 1 && !(await page.$('.warning-action')));
+await page.click('.btn-save');
+await page.waitForSelector('.dialog >> text=Saved');
+text = await dialogText();
+check('two folders: all deleted after saving', (await list('originals')).length === 0 && (await list('other')).length === 0, text);
+await closeDialog();
+
 // 5. Saving over an original never deletes the saved file
+await page.uncheck('#field-deleteOriginals');
 await page.click('.tool >> text=Start over');
 await putOriginals(['alpha.pdf']);
 await open(['alpha.pdf']);
 await page.check('#field-deleteOriginals');
+await page.waitForFunction(() => window.__test.requests === 1);
+check('a single file is asked for on its own', (await page.evaluate(() => window.__test.folderRequests)) === 0);
 await page.check('label.checkbox:has-text("Page numbers") input');
 await page.evaluate(() => { window.__test.saveDir = 'originals'; window.__test.saveName = 'alpha.pdf'; });
 await page.click('.btn-save');

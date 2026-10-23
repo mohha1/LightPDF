@@ -8,6 +8,7 @@ import {
   filesFromDrop,
   lacksWriteAccess,
   pickFiles,
+  requestAccess,
   requestWriteAccess,
   writeOutputs,
   type DeleteResult,
@@ -193,10 +194,11 @@ export function mountEditor(root: HTMLElement): void {
     );
     if (docs.length === 0) return;
     if (values[DELETE_ORIGINALS] && canDeleteFiles) {
-      // Deleting is switched on: ask for these files too. If the browser no
-      // longer counts the click that added them, the panel offers a button.
+      // Deleting is switched on: ask for these files too, unless they are in a
+      // folder already allowed. If the browser no longer counts the click that
+      // added them, the panel offers a button.
       const handles = results.flatMap((result) => (result.status === 'fulfilled' && result.value.handle ? [result.value.handle] : []));
-      void requestWriteAccess(handles).then(updateWarning);
+      void requestAccess(handles, { folder: false }).then(updateWarning);
     }
     if (project().length === 0) {
       // The first files start the history, so undo never empties the editor.
@@ -652,8 +654,8 @@ export function mountEditor(root: HTMLElement): void {
     options = renderOptions(EXPORT_FIELDS, values, () => {
       if (values[DELETE_ORIGINALS] && !deleting) {
         // Ask now, while ticking the box still counts as a click; the files
-        // are only deleted after saving.
-        void requestWriteAccess(originalsOf(project()).handles).then(updateWarning);
+        // are only deleted after saving. Several files: once, for their folder.
+        void requestAccess(originalsOf(project()).handles).then(updateWarning);
       }
       deleting = Boolean(values[DELETE_ORIGINALS]);
       const remembered = Object.entries(values).filter(([key]) => key !== HAS_IMAGES && key !== DELETE_ORIGINALS);

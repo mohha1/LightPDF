@@ -82,7 +82,7 @@ export const EXPORT_FIELDS: Field[] = [
     default: false,
     disabled: !canDeleteFiles,
     help: canDeleteFiles
-      ? 'Removes the files you added from your computer once the result is saved, so only the new file is left.'
+      ? 'Removes the files you added from your computer once the result is saved or downloaded, so only the new file is left.'
       : 'Needs Chrome or Edge on a computer.',
   },
 

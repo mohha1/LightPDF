@@ -44,14 +44,17 @@ function listNames(names: string[]): string {
   return `${names[0]}, ${names[1]} and ${names.length - 2} more`;
 }
 
-/** Originals to delete after saving, and the deletion that's still waiting for the user. */
+/** Originals to delete once the result is saved or downloaded. */
 interface Cleanup {
   handles: FileSystemFileHandle[];
   /** Originals that were added without access to the file on disk. */
   missing: string[];
   written: FileSystemFileHandle[];
-  /** Delete right away (the save is confirmed) instead of waiting for a click. */
-  now: boolean;
+  /**
+   * The result went to the downloads folder. The browser can't confirm the
+   * download finished, so the dialog says how to recover if it didn't.
+   */
+  afterDownload: boolean;
 }
 
 function readStorage(key: string): unknown {
@@ -707,7 +710,7 @@ export function mountEditor(root: HTMLElement): void {
     const pending = await lacksWriteAccess(handles);
     if (token !== warningToken || !warning) return;
 
-    const parts: Child[] = [h('p', {}, 'The files you added will be deleted from your computer after saving.')];
+    const parts: Child[] = [h('p', {}, 'The files you added will be deleted from your computer after saving or downloading.')];
     if (pending.length) {
       parts.push(
         h(
@@ -751,15 +754,18 @@ export function mountEditor(root: HTMLElement): void {
     return lines;
   }
 
-  /** Shows the result screen, deleting originals now or offering a button to do it. */
+  /** Deletes the originals that may be deleted, then shows the result and anything still to do. */
   async function showResult(dialog: ProgressDialog, view: DialogState, cleanup?: Cleanup) {
     if (!cleanup) return dialog.show(view);
     const lines = [...(view.lines ?? [])];
     let pending = cleanup.handles;
-    if (cleanup.now && pending.length) {
+    if (pending.length) {
       const result = await deleteFiles(pending, cleanup.written, false);
       registry.forgetHandles(result.removed);
       lines.push(...describeDeletion(result, false, []));
+      if (cleanup.afterDownload && result.deleted.length) {
+        lines.push('If the download didn’t finish, use Download again before closing this tab; LightPDF still has the files.');
+      }
       pending = result.needPermission;
     }
     if (cleanup.missing.length) {
@@ -781,12 +787,7 @@ export function mountEditor(root: HTMLElement): void {
     };
     dialog.show({
       ...view,
-      lines: [
-        ...lines,
-        cleanup.now
-          ? `To delete ${names}, allow LightPDF to change them.`
-          : `When the download has finished, delete ${names} from your computer?`,
-      ],
+      lines: [...lines, `To delete ${names}, allow LightPDF to change them.`],
       actions: [...view.actions.map((action) => ({ ...action, primary: false })), deleteAction],
     });
   }
@@ -833,7 +834,7 @@ export function mountEditor(root: HTMLElement): void {
         await showResult(
           dialog,
           { title: 'Saved', tone: 'done', lines: [where, result.summary], actions: [back] },
-          originals && { ...originals, written, now: true },
+          originals && { ...originals, written, afterDownload: false },
         );
       } else {
         const zipName = `${docs.length === 1 ? safeFileName(docs[0].name) : 'lightpdf'}.zip`;
@@ -847,7 +848,7 @@ export function mountEditor(root: HTMLElement): void {
             lines: [`${file.name} · ${formatBytes(file.blob.size)}`, result.summary],
             actions: [{ label: 'Download again', run: () => download(file) }, back],
           },
-          originals && { ...originals, written: [], now: false },
+          originals && { ...originals, written: [], afterDownload: true },
         );
       }
     } catch (error) {

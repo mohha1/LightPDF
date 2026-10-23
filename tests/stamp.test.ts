@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
-import { addPageNumbers, addWatermark, displayToUser, formatPageNumber, hexToRgb } from '../src/core/stamp';
+import {
+  displayToUser,
+  formatPageNumber,
+  hexToRgb,
+  stampPageNumbers,
+  stampWatermark,
+  type PageNumberOptions,
+  type WatermarkOptions,
+} from '../src/core/stamp';
 import { makePdf } from './fixtures';
 
 const box = { x: 10, y: 20, width: 100, height: 200 };
@@ -42,9 +50,21 @@ async function contentLength(bytes: Uint8Array, pageIndex: number): Promise<numb
   return contents ? contents.toString().length : 0;
 }
 
-describe('addPageNumbers', () => {
-  it('stamps only the selected pages', async () => {
-    const source = await makePdf(3, { rotations: [0, 90, 0] });
+async function addPageNumbers(bytes: Uint8Array, options: PageNumberOptions) {
+  const doc = await PDFDocument.load(bytes);
+  await stampPageNumbers(doc, options);
+  return doc.save();
+}
+
+async function addWatermark(bytes: Uint8Array, options: WatermarkOptions) {
+  const doc = await PDFDocument.load(bytes);
+  await stampWatermark(doc, options);
+  return doc.save();
+}
+
+describe('stampPageNumbers', () => {
+  it('stamps every page, including rotated ones', async () => {
+    const source = await makePdf(2, { rotations: [0, 90] });
     const out = await addPageNumbers(source, {
       position: 'bottom-right',
       margin: 20,
@@ -52,13 +72,8 @@ describe('addPageNumbers', () => {
       format: 'Page {n} of {total}',
       fontSize: 10,
       color: '#000000',
-      pages: [0, 1],
     });
-    const before = await Promise.all([0, 1, 2].map((i) => contentLength(source, i)));
-    const after = await Promise.all([0, 1, 2].map((i) => contentLength(out, i)));
-    expect(after[0]).toBeGreaterThan(before[0]);
-    expect(after[1]).toBeGreaterThan(before[1]);
-    expect(after[2]).toBe(before[2]);
+    for (const i of [0, 1]) expect(await contentLength(out, i)).toBeGreaterThan(await contentLength(source, i));
   });
 
   it('explains unsupported characters', async () => {
@@ -75,7 +90,7 @@ describe('addPageNumbers', () => {
   });
 });
 
-describe('addWatermark', () => {
+describe('stampWatermark', () => {
   it('stamps every page in both layouts', async () => {
     const source = await makePdf(2, { rotations: [0, 270] });
     for (const layout of ['center', 'tile'] as const) {

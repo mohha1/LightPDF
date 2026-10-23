@@ -1,6 +1,5 @@
-import { degrees, rgb, StandardFonts, type PDFFont, type PDFPage, type RGB } from 'pdf-lib';
+import { degrees, rgb, StandardFonts, type PDFDocument, type PDFFont, type PDFPage, type RGB } from 'pdf-lib';
 import { normalizeAngle } from './angle';
-import { loadPdf, savePdf, type Bytes } from './pdf';
 
 export interface Box {
   x: number;
@@ -87,24 +86,20 @@ export interface PageNumberOptions {
   format: string;
   fontSize: number;
   color: string;
-  /** 0-based pages to number. All pages when omitted. */
-  pages?: number[];
 }
 
 export function formatPageNumber(format: string, n: number, total: number): string {
   return format.replaceAll('{n}', String(n)).replaceAll('{total}', String(total));
 }
 
-export async function addPageNumbers(bytes: Bytes, options: PageNumberOptions): Promise<Bytes> {
-  const doc = await loadPdf(bytes);
+/** Numbers every page of `doc`, as the pages are displayed. */
+export async function stampPageNumbers(doc: PDFDocument, options: PageNumberOptions): Promise<void> {
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const color = hexToRgb(options.color);
   const pages = doc.getPages();
-  const targets = options.pages ?? doc.getPageIndices();
-  const total = options.startAt + targets.length - 1;
+  const total = options.startAt + pages.length - 1;
 
-  targets.forEach((pageIndex, position) => {
-    const page = pages[pageIndex];
+  pages.forEach((page, position) => {
     const text = formatPageNumber(options.format, options.startAt + position, total);
     const textWidth = measure(font, text, options.fontSize);
     const capHeight = font.heightAtSize(options.fontSize, { descender: false });
@@ -120,8 +115,6 @@ export async function addPageNumbers(bytes: Bytes, options: PageNumberOptions): 
     const y = vertical === 'top' ? height - options.margin - capHeight : options.margin;
     drawDisplayText(page, text, x, y, { font, size: options.fontSize, color });
   });
-
-  return savePdf(doc);
 }
 
 export interface WatermarkOptions {
@@ -133,15 +126,13 @@ export interface WatermarkOptions {
   /** Counter-clockwise angle, in degrees. */
   rotation: number;
   layout: 'center' | 'tile';
-  /** 0-based pages to stamp. All pages when omitted. */
-  pages?: number[];
 }
 
-export async function addWatermark(bytes: Bytes, options: WatermarkOptions): Promise<Bytes> {
+/** Stamps watermark text on every page of `doc`. */
+export async function stampWatermark(doc: PDFDocument, options: WatermarkOptions): Promise<void> {
   const text = options.text.trim();
   if (!text) throw new Error('Type the text for your watermark.');
 
-  const doc = await loadPdf(bytes);
   const font = await doc.embedFont(StandardFonts.HelveticaBold);
   const size = options.fontSize;
   const style: TextStyle = {
@@ -164,9 +155,7 @@ export async function addWatermark(bytes: Bytes, options: WatermarkOptions): Pro
     drawDisplayText(page, text, x, y, style);
   };
 
-  const pages = doc.getPages();
-  for (const pageIndex of options.pages ?? doc.getPageIndices()) {
-    const page = pages[pageIndex];
+  for (const page of doc.getPages()) {
     const { width, height } = displaySize(page);
     if (options.layout === 'center') {
       drawCentered(page, width / 2, height / 2);
@@ -190,6 +179,4 @@ export async function addWatermark(bytes: Bytes, options: WatermarkOptions): Pro
       }
     }
   }
-
-  return savePdf(doc);
 }

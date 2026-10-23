@@ -1,6 +1,3 @@
-import { createPdf, savePdf, type Bytes } from './pdf';
-import type { Progress } from './pages';
-
 export type PageSize = 'fit' | 'a4' | 'letter';
 export type Orientation = 'portrait' | 'landscape' | 'auto';
 
@@ -12,7 +9,7 @@ export interface ImageLayout {
 }
 
 export interface ImageInput {
-  bytes: Bytes;
+  bytes: Uint8Array;
   kind: 'jpg' | 'png';
 }
 
@@ -51,22 +48,4 @@ export function placeImage(imageWidth: number, imageHeight: number, layout: Imag
   const width = imageWidth * scale;
   const height = imageHeight * scale;
   return { pageWidth, pageHeight, x: (pageWidth - width) / 2, y: (pageHeight - height) / 2, width, height };
-}
-
-/** Builds a PDF with one image per page. */
-export async function imagesToPdf(images: ImageInput[], layout: ImageLayout, onProgress?: Progress): Promise<Bytes> {
-  const doc = await createPdf();
-  for (const [index, image] of images.entries()) {
-    const embedded = image.kind === 'jpg' ? await doc.embedJpg(image.bytes) : await doc.embedPng(image.bytes);
-    const placement = placeImage(embedded.width, embedded.height, layout);
-    const page = doc.addPage([placement.pageWidth, placement.pageHeight]);
-    page.drawImage(embedded, {
-      x: placement.x,
-      y: placement.y,
-      width: placement.width,
-      height: placement.height,
-    });
-    onProgress?.((index + 1) / images.length);
-  }
-  return savePdf(doc);
 }

@@ -1,5 +1,5 @@
 import { createPdf, savePdf } from '../core/pdf';
-import type { Progress } from '../core/pages';
+export type Progress = (fraction: number) => void;
 import { canvasToBlob, openPdf, renderPage } from './pdfjs';
 
 export interface RasterOptions {

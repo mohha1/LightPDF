@@ -1,0 +1,669 @@
+import { baseName, download, isImage, isPdf, zipOutputs } from '../browser/files';
+import { progressDialog } from '../ui/dialog';
+import { h, replaceChildren, type Child } from '../ui/dom';
+import type { Values } from '../ui/fields';
+import { icon, type IconName } from '../ui/icons';
+import { defaultValues, renderOptions, type OptionsPanel } from '../ui/options';
+import { toast } from '../ui/toast';
+import { enablePageDrag } from './drag';
+import { exportDocs, safeFileName } from './export';
+import { History } from './history';
+import { renderLanding } from './landing';
+import * as model from './model';
+import { EXPORT_FIELDS, HAS_IMAGES, toExportSettings } from './settings';
+import { SourceRegistry } from './sources';
+
+const SETTINGS_KEY = 'lightpdf:export-settings';
+const ZOOM_KEY = 'lightpdf:zoom';
+const ZOOM = { min: 100, max: 260, default: 150 };
+
+class Cancelled extends Error {}
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
+
+function readStorage(key: string): unknown {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeStorage(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage can be unavailable (private mode, blocked cookies); settings just won't persist.
+  }
+}
+
+/** Restores saved export settings, ignoring keys that no longer exist or changed type. */
+function initialValues(): Values {
+  const values = defaultValues(EXPORT_FIELDS);
+  const stored = readStorage(SETTINGS_KEY);
+  if (stored && typeof stored === 'object') {
+    for (const [key, value] of Object.entries(stored)) {
+      if (key in values && typeof value === typeof values[key]) values[key] = value as Values[string];
+    }
+  }
+  return values;
+}
+
+function isTyping(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, [contenteditable="true"]'));
+}
+
+/** The whole app: a landing page until files are added, then the editor. */
+export function mountEditor(root: HTMLElement): void {
+  const registry = new SourceRegistry();
+  const history = new History<model.Project>([]);
+  const values = initialValues();
+  let selection = new Set<string>();
+  let anchor: string | undefined;
+  let opening = 0;
+  let busy = false;
+  const storedZoom = Number(readStorage(ZOOM_KEY));
+  let zoom = storedZoom >= ZOOM.min && storedZoom <= ZOOM.max ? storedZoom : ZOOM.default;
+
+  const project = () => history.present;
+
+  // ------------------------------------------------------------------ shell
+
+  const screen = h('div', { class: 'screen' });
+  const fileInput = h('input', {
+    type: 'file',
+    hidden: true,
+    multiple: true,
+    accept: 'application/pdf,.pdf,image/*',
+    onchange: () => {
+      const files = [...(fileInput.files ?? [])];
+      fileInput.value = '';
+      void addFiles(files);
+    },
+  });
+  const status = h('div', { class: 'status', role: 'status', hidden: true });
+  const overlay = h(
+    'div',
+    { class: 'drop-overlay', hidden: true },
+    h('div', { class: 'drop-overlay-inner' }, icon('upload', 'icon icon-xl'), 'Drop PDFs and images to add them'),
+  );
+  replaceChildren(root, screen, fileInput);
+  document.body.append(overlay, status);
+
+  // Dropping files anywhere adds them.
+  let dragDepth = 0;
+  const isFileDrag = (event: DragEvent) => Boolean(event.dataTransfer?.types.includes('Files'));
+  window.addEventListener('dragenter', (event) => {
+    if (!isFileDrag(event) || busy) return;
+    dragDepth++;
+    overlay.hidden = false;
+  });
+  window.addEventListener('dragleave', (event) => {
+    if (!isFileDrag(event)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) overlay.hidden = true;
+  });
+  window.addEventListener('dragover', (event) => {
+    if (isFileDrag(event)) event.preventDefault();
+  });
+  window.addEventListener('drop', (event) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    dragDepth = 0;
+    overlay.hidden = true;
+    if (!busy) void addFiles([...(event.dataTransfer?.files ?? [])]);
+  });
+
+  window.addEventListener('beforeunload', (event) => {
+    if (project().length > 0) event.preventDefault();
+  });
+
+  document.addEventListener('keydown', onKeyDown);
+
+  // ------------------------------------------------------------------ files
+
+  async function addFiles(files: File[]) {
+    const usable = files.filter((file) => isPdf(file) || isImage(file));
+    const skipped = files.length - usable.length;
+    if (skipped > 0) toast(`${plural(skipped, 'file')} skipped. LightPDF works with PDFs and images.`);
+    if (usable.length === 0) return;
+
+    opening += usable.length;
+    updateStatus();
+    const results = await Promise.allSettled(usable.map((file) => registry.add(file)));
+    opening -= usable.length;
+    updateStatus();
+
+    const failures = results.flatMap((result, i) =>
+      result.status === 'rejected'
+        ? [`${usable[i].name}: ${result.reason instanceof Error ? result.reason.message : 'could not be opened.'}`]
+        : [],
+    );
+    if (failures.length === 1) toast(failures[0]);
+    else if (failures.length > 1) toast(`${failures.length} files couldn’t be opened. ${failures[0]}`);
+
+    const docs = results.flatMap((result) =>
+      result.status === 'fulfilled' ? [model.createDoc(baseName(result.value.file.name), result.value.id, result.value.pageCount)] : [],
+    );
+    if (docs.length === 0) return;
+    if (project().length === 0) {
+      // The first files start the history, so undo never empties the editor.
+      history.reset(docs);
+      afterChange();
+    } else {
+      commit([...project(), ...docs]);
+    }
+  }
+
+  function updateStatus() {
+    status.hidden = opening === 0;
+    replaceChildren(status, h('span', { class: 'spinner spinner-sm' }), `Opening ${plural(opening, 'file')}…`);
+  }
+
+  // ------------------------------------------------------------------ state changes
+
+  function commit(next: model.Project) {
+    if (history.push(next)) afterChange();
+  }
+
+  function undo() {
+    if (history.undo()) afterChange();
+  }
+
+  function redo() {
+    if (history.redo()) afterChange();
+  }
+
+  function afterChange() {
+    const keys = new Set(model.pageKeys(project()));
+    selection = new Set([...selection].filter((key) => keys.has(key)));
+    if (anchor && !keys.has(anchor)) anchor = undefined;
+    render();
+  }
+
+  function selectedInOrder(): string[] {
+    return model.pageKeys(project()).filter((key) => selection.has(key));
+  }
+
+  function deletePages(keys: Set<string>) {
+    if (keys.size === 0) return;
+    commit(model.deletePages(project(), keys));
+    toast(`${plural(keys.size, 'page')} deleted.`, { label: 'Undo', run: undo });
+  }
+
+  function startOver() {
+    if (!window.confirm('Remove all files and start over? This can’t be undone.')) return;
+    registry.clear();
+    history.reset([]);
+    selection.clear();
+    anchor = undefined;
+    render();
+  }
+
+  // ------------------------------------------------------------------ rendering
+
+  let toolbar: HTMLElement | undefined;
+  let canvas: HTMLElement | undefined;
+  let options: OptionsPanel | undefined;
+  let summary: HTMLElement | undefined;
+  let downloadButton: HTMLButtonElement | undefined;
+  let observer: IntersectionObserver | undefined;
+
+  function render() {
+    if (project().length === 0) {
+      observer?.disconnect();
+      toolbar = canvas = undefined;
+      replaceChildren(screen, renderLanding(() => fileInput.click()));
+      return;
+    }
+    if (!canvas) buildWorkspace();
+    renderToolbar();
+    renderCanvas();
+    updateExportPanel();
+  }
+
+  function buildWorkspace() {
+    toolbar = h('div', { class: 'editor-toolbar', role: 'toolbar', 'aria-label': 'Edit pages' });
+    canvas = h('div', { class: 'editor-canvas', style: `--thumb-size:${zoom}px` });
+    canvas.addEventListener('click', onCanvasClick);
+    canvas.addEventListener('keydown', onCanvasKey);
+    enablePageDrag(canvas, {
+      keysFor: (key) => (selection.has(key) ? selectedInOrder() : [key]),
+      onDrop: (keys, target) => commit(model.movePages(project(), new Set(keys), target.doc, target.position)),
+    });
+
+    const hint = h(
+      'p',
+      { class: 'canvas-hint' },
+      h('span', { class: 'hint-pointer' }, 'Click pages to select them. Drag pages to reorder them or move them to another file. Use the scissors between pages to split.'),
+      h('span', { class: 'hint-touch' }, 'Tap pages to select them. Drag the dotted handle to move a page. Use the scissors to split.'),
+    );
+    replaceChildren(
+      screen,
+      h(
+        'div',
+        { class: 'editor' },
+        toolbar,
+        h('div', { class: 'editor-body' }, h('div', { class: 'editor-main' }, hint, canvas), buildExportPanel()),
+      ),
+    );
+  }
+
+  function toolButton(
+    name: IconName,
+    label: string,
+    onclick: () => void,
+    { disabled = false, title = label, primary = false } = {},
+  ): HTMLButtonElement {
+    return h(
+      'button',
+      { type: 'button', class: `tool${primary ? ' tool-primary' : ''}`, title, 'aria-label': title, disabled, onclick },
+      icon(name, 'icon icon-sm'),
+      h('span', { class: 'tool-label' }, label),
+    );
+  }
+
+  function renderToolbar() {
+    if (!toolbar) return;
+    const docs = project();
+    const count = selection.size;
+    const none = count === 0;
+    const group = (...children: Child[]) => h('div', { class: 'tool-group' }, children);
+
+    replaceChildren(
+      toolbar,
+      group(toolButton('plus', 'Add files', () => fileInput.click(), { primary: true })),
+      group(
+        toolButton('undo', 'Undo', undo, { disabled: !history.canUndo, title: 'Undo (Ctrl+Z)' }),
+        toolButton('redo', 'Redo', redo, { disabled: !history.canRedo, title: 'Redo (Ctrl+Shift+Z)' }),
+      ),
+      group(
+        h('span', { class: 'selection-info', 'aria-live': 'polite' }, none ? 'No pages selected' : `${plural(count, 'page')} selected`),
+        none
+          ? toolButton('checkAll', 'Select all', selectAll, { title: 'Select all pages (Ctrl+A)' })
+          : toolButton('close', 'Clear', clearSelection, { title: 'Clear selection (Esc)' }),
+      ),
+      group(
+        toolButton('rotateLeft', 'Left', () => commit(model.rotatePages(project(), selection, -90)), {
+          disabled: none,
+          title: 'Rotate selected pages left (Shift+R)',
+        }),
+        toolButton('rotateRight', 'Right', () => commit(model.rotatePages(project(), selection, 90)), {
+          disabled: none,
+          title: 'Rotate selected pages right (R)',
+        }),
+        toolButton('copy', 'Duplicate', () => commit(model.duplicatePages(project(), selection)), {
+          disabled: none,
+          title: 'Duplicate selected pages',
+        }),
+        toolButton('extract', 'New file', () => commit(model.extractPages(project(), selection)), {
+          disabled: none,
+          title: 'Copy selected pages into a new file',
+        }),
+        toolButton('trash', 'Delete', () => deletePages(new Set(selection)), {
+          disabled: none,
+          title: 'Delete selected pages (Del)',
+        }),
+      ),
+      docs.length > 1 &&
+        group(
+          toolButton('merge', 'Merge all', () => commit(model.mergeDocs(project())), { title: 'Merge all files into one' }),
+          toolButton('sort', 'Sort A–Z', () => commit(model.sortDocsByName(project())), { title: 'Sort files by name' }),
+        ),
+      h('div', { class: 'tool-spacer' }),
+      h(
+        'label',
+        { class: 'zoom', title: 'Thumbnail size' },
+        icon('zoom', 'icon icon-sm'),
+        h('input', {
+          type: 'range',
+          min: ZOOM.min,
+          max: ZOOM.max,
+          step: 10,
+          value: zoom,
+          'aria-label': 'Thumbnail size',
+          oninput: (event: Event) => {
+            zoom = Number((event.target as HTMLInputElement).value);
+            canvas?.style.setProperty('--thumb-size', `${zoom}px`);
+            writeStorage(ZOOM_KEY, zoom);
+          },
+        }),
+      ),
+      toolButton('restart', 'Start over', startOver, { title: 'Remove all files and start over' }),
+    );
+  }
+
+  function renderCanvas() {
+    if (!canvas) return;
+    observer?.disconnect();
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const img = entry.target as HTMLImageElement;
+          io.unobserve(img);
+          registry.thumbnail(img.dataset.source!, Number(img.dataset.index)).then(
+            (url) => (img.src = url),
+            () => img.classList.add('thumb-failed'),
+          );
+        }
+      },
+      { rootMargin: '600px 0px' },
+    );
+    observer = io;
+
+    const docs = project();
+    replaceChildren(canvas, docs.map((doc, i) => renderDoc(doc, i, docs.length)));
+    canvas.querySelectorAll<HTMLImageElement>('img[data-source]:not([src])').forEach((img) => io.observe(img));
+  }
+
+  function docSelectionState(doc: model.Doc): string {
+    const selected = doc.pages.filter((page) => selection.has(page.key)).length;
+    return selected === 0 ? 'false' : selected === doc.pages.length ? 'true' : 'mixed';
+  }
+
+  function renderDoc(doc: model.Doc, index: number, total: number): HTMLElement {
+    const action = (name: IconName, label: string, actionName: string, disabled = false) =>
+      h(
+        'button',
+        { type: 'button', class: 'icon-button', title: label, 'aria-label': `${label}: ${doc.name}`, 'data-action': actionName, disabled },
+        icon(name, 'icon icon-sm'),
+      );
+
+    return h(
+      'section',
+      { class: 'doc', 'data-doc': doc.id, 'data-count': doc.pages.length, 'aria-label': doc.name },
+      h(
+        'header',
+        { class: 'doc-header' },
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'doc-check',
+            role: 'checkbox',
+            'aria-checked': docSelectionState(doc),
+            'aria-label': `Select all pages of ${doc.name}`,
+            title: 'Select all pages of this file',
+            'data-action': 'doc-select',
+          },
+          icon('check', 'icon icon-xs'),
+        ),
+        h('input', {
+          class: 'doc-name',
+          value: doc.name,
+          'aria-label': 'File name',
+          title: 'Rename',
+          spellcheck: 'false',
+          onchange: (event: Event) => commit(model.renameDoc(project(), doc.id, (event.target as HTMLInputElement).value)),
+          onkeydown: (event: KeyboardEvent) => {
+            if (event.key === 'Enter') (event.target as HTMLInputElement).blur();
+            if (event.key === 'Escape') {
+              (event.target as HTMLInputElement).value = doc.name;
+              (event.target as HTMLInputElement).blur();
+            }
+          },
+        }),
+        h('span', { class: 'doc-meta' }, plural(doc.pages.length, 'page')),
+        h(
+          'div',
+          { class: 'doc-actions' },
+          action('rotateRight', 'Rotate all pages', 'doc-rotate'),
+          action('split', 'Split into single pages', 'doc-explode', doc.pages.length < 2),
+          action('merge', 'Merge with the next file', 'doc-merge-next', index === total - 1),
+          action('chevronUp', 'Move up', 'doc-up', index === 0),
+          action('chevronDown', 'Move down', 'doc-down', index === total - 1),
+          action('download', 'Download this file', 'doc-download'),
+          action('trash', 'Remove this file', 'doc-delete'),
+        ),
+      ),
+      h('div', { class: 'doc-pages' }, doc.pages.map((page, position) => renderPage(doc, page, position))),
+    );
+  }
+
+  function renderPage(doc: model.Doc, page: model.PageRef, position: number): HTMLElement {
+    const source = registry.get(page.source);
+    const selected = selection.has(page.key);
+    const last = position === doc.pages.length - 1;
+    const quick = (name: IconName, label: string, actionName: string) =>
+      h('button', { type: 'button', class: 'icon-button', title: label, 'aria-label': `${label} (page ${position + 1})`, 'data-action': actionName }, icon(name, 'icon icon-sm'));
+
+    return h(
+      'div',
+      {
+        class: `page${selected ? ' is-selected' : ''}`,
+        'data-key': page.key,
+        'data-doc': doc.id,
+        'data-position': position,
+        tabindex: 0,
+        role: 'checkbox',
+        'aria-checked': String(selected),
+        'aria-label': `Page ${position + 1} of ${doc.name}`,
+        title: source ? `${source.file.name}${source.kind === 'pdf' ? `, page ${page.index + 1}` : ''}` : undefined,
+      },
+      h(
+        'div',
+        { class: 'page-thumb' },
+        h('img', {
+          class: 'thumb-img',
+          alt: '',
+          draggable: 'false',
+          src: registry.cachedThumbnail(page.source, page.index),
+          'data-source': page.source,
+          'data-index': page.index,
+          style: `--rotation:${page.rotation}deg`,
+        }),
+      ),
+      h('span', { class: 'page-check', 'aria-hidden': 'true' }, icon('check', 'icon icon-xs')),
+      h('div', { class: 'page-quick' }, quick('rotateRight', 'Rotate', 'page-rotate'), quick('trash', 'Delete', 'page-delete')),
+      h('span', { class: 'page-grip', 'aria-hidden': 'true' }, icon('grip', 'icon icon-sm')),
+      h('span', { class: 'page-number' }, String(position + 1)),
+      !last &&
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'split-gap',
+            title: `Split the file after page ${position + 1}`,
+            'aria-label': `Split ${doc.name} after page ${position + 1}`,
+            'data-action': 'split-after',
+          },
+          icon('scissors', 'icon icon-xs'),
+        ),
+    );
+  }
+
+  /** Updates selection marks in place; cheaper than re-rendering every page. */
+  function updateSelection() {
+    canvas?.querySelectorAll<HTMLElement>('.page').forEach((card) => {
+      const selected = selection.has(card.dataset.key!);
+      card.classList.toggle('is-selected', selected);
+      card.setAttribute('aria-checked', String(selected));
+    });
+    for (const doc of project()) {
+      canvas?.querySelector(`.doc[data-doc="${doc.id}"] .doc-check`)?.setAttribute('aria-checked', docSelectionState(doc));
+    }
+    renderToolbar();
+  }
+
+  function selectAll() {
+    selection = new Set(model.pageKeys(project()));
+    updateSelection();
+  }
+
+  function clearSelection() {
+    selection.clear();
+    anchor = undefined;
+    updateSelection();
+  }
+
+  function togglePage(key: string, extend: boolean) {
+    if (extend && anchor) {
+      for (const k of model.keyRange(project(), anchor, key)) selection.add(k);
+    } else {
+      if (selection.has(key)) selection.delete(key);
+      else selection.add(key);
+      anchor = key;
+    }
+    updateSelection();
+  }
+
+  // ------------------------------------------------------------------ events
+
+  function onCanvasClick(event: MouseEvent) {
+    const element = event.target as HTMLElement;
+    const card = element.closest<HTMLElement>('.page');
+    const docElement = element.closest<HTMLElement>('.doc');
+    const button = element.closest<HTMLElement>('[data-action]');
+    if (button) {
+      runAction(button.dataset.action!, card?.dataset.key, docElement?.dataset.doc, Number(card?.dataset.position));
+    } else if (card) {
+      togglePage(card.dataset.key!, event.shiftKey);
+    }
+  }
+
+  function onCanvasKey(event: KeyboardEvent) {
+    const card = (event.target as HTMLElement).closest<HTMLElement>('.page');
+    if (card && event.target === card && (event.key === ' ' || event.key === 'Enter')) {
+      event.preventDefault();
+      togglePage(card.dataset.key!, event.shiftKey);
+    }
+  }
+
+  function runAction(action: string, key: string | undefined, docId: string | undefined, position: number) {
+    const docs = project();
+    const index = docs.findIndex((doc) => doc.id === docId);
+    const doc = docs[index];
+    if (!doc) return;
+    const docKeys = new Set(doc.pages.map((page) => page.key));
+
+    switch (action) {
+      case 'page-rotate':
+        return commit(model.rotatePages(docs, new Set([key!]), 90));
+      case 'page-delete':
+        return deletePages(new Set([key!]));
+      case 'split-after':
+        return commit(model.splitDoc(docs, doc.id, position));
+      case 'doc-select': {
+        const all = docSelectionState(doc) === 'true';
+        docKeys.forEach((k) => (all ? selection.delete(k) : selection.add(k)));
+        return updateSelection();
+      }
+      case 'doc-rotate':
+        return commit(model.rotatePages(docs, docKeys, 90));
+      case 'doc-explode':
+        return commit(model.splitIntoPages(docs, doc.id));
+      case 'doc-merge-next':
+        return commit(model.mergeDocs(docs, new Set([doc.id, docs[index + 1]?.id])));
+      case 'doc-up':
+        return commit(model.moveDoc(docs, doc.id, -1));
+      case 'doc-down':
+        return commit(model.moveDoc(docs, doc.id, 1));
+      case 'doc-download':
+        return void runExport([doc]);
+      case 'doc-delete':
+        commit(model.removeDoc(docs, doc.id));
+        return toast(`Removed ${doc.name}.`, { label: 'Undo', run: undo });
+    }
+  }
+
+  function onKeyDown(event: KeyboardEvent) {
+    if (!canvas || busy || isTyping(event.target) || document.querySelector('.dialog-backdrop')) return;
+    const mod = event.ctrlKey || event.metaKey;
+    const key = event.key.toLowerCase();
+    const handled = () => event.preventDefault();
+
+    if (mod && key === 'z') {
+      handled();
+      if (event.shiftKey) redo();
+      else undo();
+    } else if (mod && key === 'y') {
+      handled();
+      redo();
+    } else if (mod && key === 'a') {
+      handled();
+      selectAll();
+    } else if (!mod && (event.key === 'Delete' || event.key === 'Backspace') && selection.size > 0) {
+      handled();
+      deletePages(new Set(selection));
+    } else if (event.key === 'Escape' && selection.size > 0) {
+      clearSelection();
+    } else if (!mod && !event.altKey && key === 'r' && selection.size > 0) {
+      handled();
+      commit(model.rotatePages(project(), selection, event.shiftKey ? -90 : 90));
+    }
+  }
+
+  // ------------------------------------------------------------------ export
+
+  function hasImages(): boolean {
+    return project().some((doc) => doc.pages.some((page) => registry.get(page.source)?.kind === 'image'));
+  }
+
+  function buildExportPanel(): HTMLElement {
+    values[HAS_IMAGES] = hasImages();
+    options = renderOptions(EXPORT_FIELDS, values, () => {
+      writeStorage(SETTINGS_KEY, Object.fromEntries(Object.entries(values).filter(([key]) => key !== HAS_IMAGES)));
+      updateExportPanel();
+    });
+    summary = h('p', { class: 'export-summary' });
+    downloadButton = h('button', { type: 'button', class: 'btn btn-primary btn-action', onclick: () => void runExport(project()) });
+    return h(
+      'aside',
+      { class: 'sidebar', 'aria-label': 'Download options' },
+      h('h2', { class: 'sidebar-title' }, 'Download'),
+      h('div', { class: 'sidebar-body' }, options.element),
+      h('div', { class: 'sidebar-footer' }, summary, downloadButton),
+    );
+  }
+
+  function updateExportPanel() {
+    if (!options || !summary || !downloadButton) return;
+    values[HAS_IMAGES] = hasImages();
+    options.refresh();
+
+    const docs = project().length;
+    const pages = model.pageCount(project());
+    const format = values.format;
+    const outputs = format === 'jpg' || format === 'png' ? pages : docs;
+    const label =
+      format === 'pdf'
+        ? docs === 1 ? 'Download PDF' : `Download ${docs} PDFs`
+        : format === 'txt'
+          ? docs === 1 ? 'Download text' : `Download ${docs} text files`
+          : pages === 1 ? 'Download image' : `Download ${pages} images`;
+    summary.textContent = `${plural(docs, 'file')} · ${plural(pages, 'page')}${outputs > 1 ? ' · saved as a ZIP' : ''}`;
+    replaceChildren(downloadButton, icon('download'), label);
+  }
+
+  async function runExport(docs: readonly model.Doc[]) {
+    if (busy || docs.length === 0) return;
+    busy = true;
+    let cancelled = false;
+    const dialog = progressDialog(() => {
+      cancelled = true;
+      dialog.close();
+    });
+    try {
+      const result = await exportDocs(docs, registry, toExportSettings(values), (fraction, label) => {
+        if (cancelled) throw new Cancelled();
+        dialog.update(fraction, label);
+      });
+      if (cancelled) return;
+      const zipName = `${docs.length === 1 ? safeFileName(docs[0].name) : 'lightpdf'}.zip`;
+      const file = result.files.length === 1 ? result.files[0] : await zipOutputs(result.files, zipName);
+      download(file);
+      dialog.done(file, result.summary, () => download(file));
+    } catch (error) {
+      if (!(error instanceof Cancelled) && !cancelled) {
+        console.error(error);
+        dialog.fail(error instanceof Error ? error.message : 'Something went wrong. Please try again.');
+      }
+    } finally {
+      busy = false;
+    }
+  }
+
+  render();
+}

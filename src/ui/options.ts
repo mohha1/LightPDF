@@ -1,11 +1,11 @@
-import type { Field, InputFile, Values } from '../tools/types';
+import type { Field, Values } from './fields';
 import { h } from './dom';
 
 const POSITIONS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right'];
 
 export interface OptionsPanel {
   element: HTMLElement;
-  /** Re-applies `showIf` rules and dynamic help after values or files change. */
+  /** Re-applies `showIf` rules after values change outside the panel. */
   refresh(): void;
 }
 
@@ -13,13 +13,8 @@ export interface OptionsPanel {
  * Renders a tool's fields. Edits write straight into `values`; the panel is
  * never rebuilt while typing, so inputs keep their focus.
  */
-export function renderOptions(
-  fields: Field[],
-  values: Values,
-  inputs: () => InputFile[],
-  onChange: () => void,
-): OptionsPanel {
-  const rows: Array<{ field: Field; row: HTMLElement; help?: HTMLElement }> = [];
+export function renderOptions(fields: Field[], values: Values, onChange: () => void): OptionsPanel {
+  const rows: Array<{ field: Field; row: HTMLElement }> = [];
 
   const set = (key: string, value: Values[string]) => {
     values[key] = value;
@@ -29,24 +24,23 @@ export function renderOptions(
 
   for (const field of fields) {
     const id = `field-${field.key}`;
-    const help = field.help ? h('p', { class: 'field-help' }) : undefined;
+    if (field.type === 'section') {
+      rows.push({ field, row: h('h3', { class: 'field-section' }, field.label ?? '') });
+      continue;
+    }
+    const help = field.help ? h('p', { class: 'field-help' }, field.help) : undefined;
     const control = renderControl(field, id, values, set);
     const label =
       field.label && field.type !== 'checkbox'
         ? h(field.type === 'choice' || field.type === 'position' ? 'div' : 'label', { class: 'field-label', for: id }, field.label)
         : null;
     const row = h('div', { class: `field field-${field.type}` }, label, control, help);
-    rows.push({ field, row, help });
+    rows.push({ field, row });
   }
 
   function refresh() {
-    for (const { field, row, help } of rows) {
+    for (const { field, row } of rows) {
       row.hidden = field.showIf ? !field.showIf(values) : false;
-      if (help && field.help) {
-        const text = typeof field.help === 'function' ? field.help(inputs(), values) : field.help;
-        help.textContent = text;
-        help.hidden = !text.trim();
-      }
     }
   }
 
@@ -55,7 +49,7 @@ export function renderOptions(
 }
 
 function renderControl(
-  field: Field,
+  field: Exclude<Field, { type: 'section' }>,
   id: string,
   values: Values,
   set: (key: string, value: Values[string]) => void,
@@ -193,5 +187,5 @@ function renderControl(
 }
 
 export function defaultValues(fields: Field[]): Values {
-  return Object.fromEntries(fields.map((field) => [field.key, field.default]));
+  return Object.fromEntries(fields.flatMap((field) => (field.type === 'section' ? [] : [[field.key, field.default]])));
 }

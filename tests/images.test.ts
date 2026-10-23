@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { PDFDocument } from 'pdf-lib';
 import { jpegOrientation } from '../src/core/exif';
-import { imagesToPdf, placeImage } from '../src/core/images';
+import { placeImage } from '../src/core/images';
 import { fromBase64, JPEG_BASE64, JPEG_ROTATED_BASE64, PNG_BASE64 } from './fixtures';
 
 describe('placeImage', () => {
@@ -30,23 +29,6 @@ describe('placeImage', () => {
     expect([placement.pageWidth, placement.pageHeight]).toEqual([612, 792]);
     expect(placement.width).toBeCloseTo(540);
     expect(placement.x).toBeCloseTo(36);
-  });
-});
-
-describe('imagesToPdf', () => {
-  it('creates one page per image', async () => {
-    const out = await imagesToPdf(
-      [
-        { bytes: fromBase64(JPEG_BASE64), kind: 'jpg' },
-        { bytes: fromBase64(PNG_BASE64), kind: 'png' },
-      ],
-      { pageSize: 'fit', orientation: 'auto', margin: 0 },
-    );
-    const sizes = (await PDFDocument.load(out)).getPages().map((page) => [page.getWidth(), page.getHeight()]);
-    expect(sizes).toEqual([
-      [3, 1.5],
-      [2.25, 3.75],
-    ]);
   });
 });
 

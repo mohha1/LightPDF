@@ -146,7 +146,12 @@ p {
   text-transform: uppercase;
   text-decoration: none;
 }
+/* The start page shows the logo, so the header doesn't repeat the name there. */
+body:has(.landing) .wordmark {
+  display: none;
+}
 .header-meta {
+  margin-left: auto;
   display: flex;
   gap: 16px;
   font-size: 12px;

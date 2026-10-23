@@ -4,7 +4,7 @@ LightPDF is a static web app for editing PDFs and images entirely in the browser
 
 ## Status
 
-- Work reaches `main` through pull requests: #1 (the app), #2 (README, logo, SECURITY.md), #3 (single-file build, zip package, JPEG 2000 and scan fix), #4 (one folder permission for Delete originals).
+- Work reaches `main` through pull requests: #1 (the app), #2 (README, logo, SECURITY.md), #3 (single-file build, zip package, JPEG 2000 and scan fix), #4 (one folder permission for Delete originals), #5 (logo on the start page).
 - Everything listed below is built and tested. Nothing is half-done.
 - Not yet verified in real Chrome or Edge: the permission prompts for **Delete originals** (per file and for the folder), and **Save as…** with real files. The tests use stand-ins that follow Chrome's rules; see "Testing".
 - Not yet tried: `LightPDF.html` in Firefox and Safari (only Chromium is available in the cloud environment), and the start scripts on Windows and macOS.

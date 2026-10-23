@@ -1,4 +1,6 @@
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
+import jbig2Url from 'pdfjs-dist/wasm/jbig2.wasm?url';
+import openjpegUrl from 'pdfjs-dist/wasm/openjpeg.wasm?url';
 import { setUpWorker } from './pdf-worker';
 
 type PdfJs = typeof import('pdfjs-dist');
@@ -14,11 +16,29 @@ function pdfjs(): Promise<PdfJs> {
   return library;
 }
 
+/** PDF.js's WebAssembly image decoders: JPEG 2000, and JBIG2 and CCITT fax (black-and-white scans). */
+const WASM_FILES: Record<string, string> = { 'openjpeg.wasm': openjpegUrl, 'jbig2.wasm': jbig2Url };
+
+/**
+ * Gives PDF.js the decoders bundled with the app, which it asks for by file
+ * name. The single-file build inlines them as data: URLs, which can be fetched
+ * from a page opened from disk too.
+ */
+class BinaryDataFactory {
+  async fetch({ kind, filename }: { kind: string; filename: string }): Promise<Uint8Array> {
+    const url = kind === 'wasmUrl' ? WASM_FILES[filename] : undefined;
+    if (!url) throw new Error(`${filename} is not bundled with LightPDF.`);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Could not load ${filename}.`);
+    return new Uint8Array(await response.arrayBuffer());
+  }
+}
+
 export async function openPdf(bytes: Uint8Array): Promise<PDFDocumentProxy> {
   const lib = await pdfjs();
   try {
     // PDF.js takes ownership of the buffer it is given, so pass a copy.
-    return await lib.getDocument({ data: bytes.slice() }).promise;
+    return await lib.getDocument({ data: bytes.slice(), BinaryDataFactory }).promise;
   } catch (error) {
     if (error instanceof Error && error.name === 'PasswordException') {
       throw new Error('This PDF is password-protected. Remove the password and try again.');

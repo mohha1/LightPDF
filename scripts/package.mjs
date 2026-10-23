@@ -33,6 +33,15 @@ add('local-server/start.bat', 'packaging/start.bat');
 add('local-server/start.command', 'packaging/start.command', true);
 add('local-server/start.sh', 'packaging/start.sh', true);
 
+// Licences of the libraries bundled into the app, including PDF.js's WebAssembly decoders.
+const wasm = 'node_modules/pdfjs-dist/wasm';
+add('third-party-licenses/pdf.js.txt', 'node_modules/pdfjs-dist/LICENSE');
+add('third-party-licenses/pdf-lib.md', 'node_modules/pdf-lib/LICENSE.md');
+add('third-party-licenses/jszip.md', 'node_modules/jszip/LICENSE.markdown');
+for (const name of ['LICENSE_OPENJPEG', 'LICENSE_PDFJS_OPENJPEG', 'LICENSE_JBIG2', 'LICENSE_PDFJS_JBIG2']) {
+  add(`third-party-licenses/${name.replace('LICENSE_', '').toLowerCase().replace('pdfjs_', 'pdf.js-')}.txt`, `${wasm}/${name}`);
+}
+
 const bytes = await zip.generateAsync({ type: 'uint8array', platform: 'UNIX', compression: 'DEFLATE', compressionOptions: { level: 9 } });
 mkdirSync(from('release'), { recursive: true });
 writeFileSync(from('release/LightPDF.zip'), bytes);

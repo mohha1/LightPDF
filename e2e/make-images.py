@@ -1,4 +1,5 @@
 """Writes the image fixtures and a large scanned-style PDF into e2e/fixtures/. Needs Pillow."""
+import io
 import pathlib
 import random
 
@@ -34,4 +35,39 @@ for _ in range(400000):
     value = max(0, min(255, pixels[x, y][0] + random.randint(-25, 25)))
     pixels[x, y] = (value, value, value)
 scan.save(out / 'scan.pdf', 'PDF', resolution=200, quality=95)
+
+
+def pdf_with_image(path, data, width, height, params):
+    """Writes a one-page PDF that shows one image stream as it is."""
+    objects = [
+        b'<< /Type /Catalog /Pages 2 0 R >>',
+        b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+        f'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] '
+        f'/Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>'.encode(),
+        f'<< /Type /XObject /Subtype /Image /Width {width} /Height {height} {params} /Length {len(data)} >>\nstream\n'.encode()
+        + data + b'\nendstream',
+    ]
+    content = f'q {width} 0 0 {height} 0 0 cm /Im0 Do Q'.encode()
+    objects.append(f'<< /Length {len(content)} >>\nstream\n'.encode() + content + b'\nendstream')
+    pdf, offsets = bytearray(b'%PDF-1.7\n'), []
+    for number, body in enumerate(objects, 1):
+        offsets.append(len(pdf))
+        pdf += f'{number} 0 obj\n'.encode() + body + b'\nendobj\n'
+    xref = len(pdf)
+    pdf += f'xref\n0 {len(objects) + 1}\n0000000000 65535 f \n'.encode()
+    pdf += b''.join(f'{offset:010d} 00000 n \n'.encode() for offset in offsets)
+    pdf += f'trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n'.encode()
+    path.write_bytes(pdf)
+
+
+# Image codecs PDF.js decodes with WebAssembly: JPEG 2000 and CCITT fax (black-and-white scans).
+picture = Image.new('RGB', (600, 800), (255, 255, 255))
+ImageDraw.Draw(picture).ellipse([100, 200, 500, 600], fill=(30, 30, 160))
+jp2 = io.BytesIO()
+picture.save(jp2, 'JPEG2000')
+pdf_with_image(out / 'jpx.pdf', jp2.getvalue(), 600, 800, '/Filter /JPXDecode')
+fax = Image.new('1', (1200, 1600), 1)
+ImageDraw.Draw(fax).ellipse([200, 400, 1000, 1200], fill=0)
+fax.save(out / 'ccitt.pdf', 'PDF', resolution=150)
+
 print(f'Image fixtures written to {out}')

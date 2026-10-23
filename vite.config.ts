@@ -139,6 +139,8 @@ export default defineConfig(({ mode }) => {
       ...(single && {
         outDir: 'dist-single',
         modulePreload: false,
+        // Inlines the files imported with ?url (PDF.js's WebAssembly decoders) as data: URLs.
+        assetsInlineLimit: () => true,
         cssCodeSplit: false,
         rolldownOptions: { output: { codeSplitting: false } },
       }),

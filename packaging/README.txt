@@ -60,3 +60,4 @@ Contents
   local-server/start.command  Starter for macOS
   local-server/start.sh     Starter for Linux
   LICENSE.txt               MIT licence
+  third-party-licenses/     Licences of PDF.js, pdf-lib, JSZip and the image decoders

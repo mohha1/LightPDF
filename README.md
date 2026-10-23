@@ -166,7 +166,7 @@ npm run preview    # serve the production build on http://localhost:4173
 ### Built with
 
 - **Vite + TypeScript**, no UI framework.
-- **[PDF.js](https://github.com/mozilla/pdf.js)** (Apache-2.0) opens files, renders thumbnails (only those scrolled into view) and page images, and extracts text.
+- **[PDF.js](https://github.com/mozilla/pdf.js)** (Apache-2.0) opens files, renders thumbnails (only those scrolled into view) and page images, and extracts text. Its WebAssembly decoders, built from [OpenJPEG](https://github.com/uclouvain/openjpeg) (BSD-2-Clause) and PDFium's JBIG2 decoder (BSD-3-Clause), handle JPEG 2000 images and black-and-white scans (JBIG2, CCITT fax).
 - **[pdf-lib](https://github.com/Hopding/pdf-lib)** (MIT) edits and creates PDFs.
 - **[JSZip](https://github.com/Stuk/jszip)** (MIT) packs multiple results into one download.
 - A small service worker, generated at build time, caches the app for offline use.

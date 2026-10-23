@@ -355,7 +355,7 @@ export function mountEditor(root: HTMLElement): void {
       group(
         toolButton('Edit page', () => openPage(selectedInOrder()[0]), {
           disabled: count !== 1,
-          title: 'Add text, drawings, images or a signature to the selected page (E, or double-click a page)',
+          title: 'Add text, drawings or images to the selected page (E, or double-click a page)',
         }),
         toolButton('Rotate left', () => commit(model.rotatePages(project(), selection, -90)), {
           disabled: none,

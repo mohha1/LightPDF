@@ -6,7 +6,7 @@
 </picture>
 
 <p><strong>Private PDF tools that run entirely in your browser.</strong><br>
-Merge, split, reorder, rotate, edit, sign, compress and convert PDFs and images. Nothing is uploaded.</p>
+Merge, split, reorder, rotate, edit, compress and convert PDFs and images. Nothing is uploaded.</p>
 
 [![CI](https://github.com/mohha1/LightPDF/actions/workflows/ci.yml/badge.svg)](https://github.com/mohha1/LightPDF/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111111?style=flat-square)](LICENSE)
@@ -36,7 +36,7 @@ Merge, split, reorder, rotate, edit, sign, compress and convert PDFs and images.
 | | |
 | --- | --- |
 | **Organise** | Reorder, rotate, delete, duplicate and extract pages. Drag pages between documents. |
-| **Edit pages** | Double-click a page to add text, freehand drawing, highlights, whiteout, rectangles, ellipses, lines, arrows, images and a drawn signature. |
+| **Edit pages** | Double-click a page to add text, freehand drawing, highlights, whiteout, rectangles, ellipses, lines, arrows and images. |
 | **Merge and split** | Merge everything into one file, merge two neighbours, split at any page or into single pages. |
 | **Compress** | Shrink scans and photo-heavy files. LightPDF never hands back a file bigger than the original. |
 | **Convert** | Export to PDF, JPG, PNG or plain text. Turn JPG, PNG and other images into PDF pages. |
@@ -82,7 +82,6 @@ Opening a page shows it large, with tools above it. What you add is drawn into t
 | **Rectangle**, **Ellipse** (<kbd>R</kbd>, <kbd>E</kbd>) | Outlines, or filled with **Fill**. Hold <kbd>Shift</kbd> for a square or circle. |
 | **Line**, **Arrow** (<kbd>L</kbd>, <kbd>A</kbd>) | Hold <kbd>Shift</kbd> to keep to 45° steps. |
 | **Image** (<kbd>I</kbd>) | Places a picture from your computer, such as a logo or a stamp. |
-| **Signature** (<kbd>S</kbd>) | Draw your signature with the mouse, a pen or a finger, then place and size it. It is kept until you close the tab, for signing other pages, and never stored. |
 
 The bar under the tools sets the colour, size and thickness of what you draw next, or of what is selected. **‹** and **›** (or <kbd>Page Up</kbd> and <kbd>Page Down</kbd>) move to the other pages of the same document. Each page has its own undo (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Z</kbd>). **Done** keeps the changes on every page you edited, as one step you can undo in the main editor; **Cancel** drops them. Hold <kbd>Ctrl</kbd> and scroll, or pinch on a touchpad, to zoom.
 
@@ -143,7 +142,7 @@ LightPDF is designed so that your documents never leave your computer:
 
 - **No uploads.** All processing happens in your browser tab. There is no backend to send files to.
 - **No tracking.** No analytics, cookies, ads, accounts, fonts or scripts from other sites. Every request the app makes goes to the site it is served from.
-- **Minimal storage.** Only your Download settings and zoom level are saved, in your browser's local storage. Your files, and anything you add in the page editor, including a signature, are held in the tab's memory and are gone when you close it.
+- **Minimal storage.** Only your Download settings and zoom level are saved, in your browser's local storage. Your files, and anything you add in the page editor, are held in the tab's memory and are gone when you close it.
 - **Limited file access.** The page can only see the files you choose. It writes only where you tell it to, and deletes only when you tick **Delete originals** and grant permission.
 - **Untrusted PDFs are handled safely.** Pages are rendered as images by PDF.js in a separate worker. JavaScript inside PDFs is never run.
 

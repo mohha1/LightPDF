@@ -25,11 +25,11 @@ The single-file `LightPDF.html` in the download package passes the same check wh
 | What | Where | How long |
 | --- | --- | --- |
 | Your files and their thumbnails | The tab's memory | Until you close the tab or choose **Start over** |
-| What you add in the page editor (text, drawings, images, a drawn signature) | The tab's memory | Until you close the tab |
+| What you add in the page editor (text, drawings, images) | The tab's memory | Until you close the tab |
 | Download settings (format, compression, page number and watermark options, **including the watermark text**) and thumbnail zoom | `localStorage` for the site | Until you clear the site's data |
 | The app's own files (HTML, JavaScript, CSS, icons) | Cache Storage, via the service worker | Replaced on each update |
 
-The **Delete originals** setting and signatures are never stored. Your files are never written to `localStorage`, IndexedDB or the service worker cache. To remove everything LightPDF has stored, clear the site's data in your browser settings.
+The **Delete originals** setting is never stored. Your files are never written to `localStorage`, IndexedDB or the service worker cache. To remove everything LightPDF has stored, clear the site's data in your browser settings.
 
 ### Access to files on your computer
 
@@ -57,7 +57,7 @@ PDF files can be crafted to attack the software that opens them. LightPDF reduce
 ### What LightPDF does not do
 
 - **It doesn't sanitise PDFs.** When a document is one PDF with its pages in their original order, LightPDF edits that PDF in place, so everything in it is kept: metadata, bookmarks, links, form fields, and any attachments or scripts it contains. If you need to strip hidden content before sharing a file, use **Recommended** or **Extreme** compression, or export to JPG or PNG. These redraw every page as an image in a new file, which keeps only how the pages look.
-- **It doesn't encrypt, digitally sign or password-protect files**, and it can't open password-protected PDFs. A signature drawn in the page editor is a picture on the page, not a cryptographic signature.
+- **It doesn't encrypt, digitally sign or password-protect files**, and it can't open password-protected PDFs.
 - **Whiteout doesn't redact.** The page editor's whiteout covers content with a box; the text underneath stays in the file and can be copied or searched.
 - **It can't protect you from a compromised device or browser.** Malicious browser extensions, for example, can read any page you visit.
 

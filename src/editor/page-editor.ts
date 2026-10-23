@@ -26,7 +26,7 @@ import type { Doc } from './model';
 import type { SourceRegistry } from './sources';
 
 type Tool = 'select' | 'text' | 'draw' | 'highlight' | 'whiteout' | 'rect' | 'ellipse' | 'line' | 'arrow';
-type Action = 'image' | 'signature';
+type Action = 'image';
 
 interface ToolInfo {
   id: Tool | Action;
@@ -46,7 +46,6 @@ const TOOLS: ToolInfo[] = [
   { id: 'line', label: 'Line', key: 'l', hint: 'Drag to draw a line. Shift keeps it at 45° steps.' },
   { id: 'arrow', label: 'Arrow', key: 'a', hint: 'Drag from the tail to the point. Shift keeps it at 45° steps.' },
   { id: 'image', label: 'Image', key: 'i', hint: '' },
-  { id: 'signature', label: 'Signature', key: 's', hint: '' },
 ];
 
 const COLORS = ['#111111', '#ffffff', '#d92d20', '#1f5fd1', '#1b8a3c', '#f5b400'];
@@ -67,9 +66,6 @@ const style = {
   highlight: { color: '#ffe14d' },
 };
 type StyleKind = keyof typeof style;
-
-/** A signature drawn during this visit, offered again; never stored. */
-let lastSignature: { image: MarkImage; width: number; height: number } | undefined;
 
 let counter = 0;
 const newId = () => `m${++counter}`;
@@ -123,7 +119,7 @@ export interface PageEditorOptions {
 
 /**
  * A full-screen editor for one page at a time: add text, freehand drawing,
- * highlights, whiteout, shapes, lines, images and a signature. Changes stay
+ * highlights, whiteout, shapes, lines and images. Changes stay
  * in drafts until Done, so Cancel leaves the document as it was.
  */
 export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: PageEditorOptions): void {
@@ -380,7 +376,7 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
       TOOLS.map((info) =>
         button(info.label, () => pickTool(info.id), {
           title: `${info.label} (${info.key.toUpperCase()})`,
-          pressed: info.id === 'image' || info.id === 'signature' ? undefined : info.id === tool,
+          pressed: info.id === 'image' ? undefined : info.id === tool,
         }),
       ),
     );
@@ -565,10 +561,6 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
       imageInput.click();
       return;
     }
-    if (next === 'signature') {
-      void addSignature();
-      return;
-    }
     tool = next;
     if (tool !== 'select') selected = undefined;
     draw();
@@ -722,13 +714,6 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
     } catch (error) {
       toast(error instanceof Error ? error.message : `"${file.name}" could not be added.`);
     }
-  }
-
-  async function addSignature() {
-    const signature = await drawSignature();
-    if (!signature) return;
-    lastSignature = signature;
-    placeImage(signature.image, signature.width, signature.height);
   }
 
   // ------------------------------------------------------------------ pointer
@@ -1006,160 +991,3 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
 }
 
 const round = (value: number) => Math.round(value * 100) / 100;
-
-/**
- * A dialog to draw a signature with the mouse, a pen or a finger. Resolves
- * with a trimmed PNG and its size in points, or undefined when cancelled.
- */
-function drawSignature(): Promise<{ image: MarkImage; width: number; height: number } | undefined> {
-  return new Promise((resolve) => {
-    const pixelRatio = Math.min(window.devicePixelRatio || 1, 3);
-    const canvas = h('canvas', { class: 'signature-pad', 'aria-label': 'Signature area' });
-    const context = canvas.getContext('2d')!;
-    let ink = '#111111';
-    let strokes = 0;
-    let last: Point | undefined;
-
-    const use = h('button', { type: 'button', class: 'btn btn-primary', disabled: true, onclick: () => void finish() }, 'Add signature');
-    const inks = ['#111111', '#1f3fbf'].map((color) =>
-      h('button', {
-        type: 'button',
-        class: 'pe-swatch',
-        style: `--swatch:${color}`,
-        'aria-label': color === '#111111' ? 'Black ink' : 'Blue ink',
-        'aria-pressed': String(color === ink),
-        onclick: (event: Event) => {
-          ink = color;
-          for (const swatch of inks) swatch.setAttribute('aria-pressed', String(swatch === event.currentTarget));
-        },
-      }),
-    );
-    const dialog = h(
-      'div',
-      { class: 'dialog dialog-wide', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'signature-title' },
-      h('h2', { id: 'signature-title' }, 'Draw your signature'),
-      h('div', { class: 'signature-frame' }, canvas),
-      h(
-        'div',
-        { class: 'signature-tools' },
-        h('div', { class: 'pe-field' }, h('span', { class: 'pe-label' }, 'Ink'), inks),
-        h('button', { type: 'button', class: 'warning-action', onclick: clear }, 'Clear'),
-      ),
-      h('p', { class: 'dialog-note' }, 'Your signature stays on this device and is forgotten when you close LightPDF.'),
-      h(
-        'div',
-        { class: 'dialog-actions' },
-        lastSignature &&
-          h('button', { type: 'button', class: 'btn btn-light', onclick: () => close(lastSignature) }, 'Use the last one'),
-        h('button', { type: 'button', class: 'btn btn-light', onclick: () => close(undefined) }, 'Cancel'),
-        use,
-      ),
-    );
-    const backdrop = h('div', { class: 'dialog-backdrop' }, dialog);
-    document.body.append(backdrop);
-    const box = canvas.getBoundingClientRect();
-    canvas.width = Math.round(box.width * pixelRatio);
-    canvas.height = Math.round(box.height * pixelRatio);
-    context.scale(pixelRatio, pixelRatio);
-    context.lineCap = 'round';
-    context.lineJoin = 'round';
-    context.lineWidth = 2.5;
-
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation();
-        close(undefined);
-      }
-    };
-    document.addEventListener('keydown', onKey, true);
-
-    function point(event: PointerEvent): Point {
-      const rect = canvas.getBoundingClientRect();
-      return { x: event.clientX - rect.left, y: event.clientY - rect.top };
-    }
-    canvas.addEventListener('pointerdown', (event) => {
-      if (event.button !== 0) return;
-      event.preventDefault();
-      canvas.setPointerCapture(event.pointerId);
-      last = point(event);
-      context.strokeStyle = ink;
-      context.beginPath();
-      context.moveTo(last.x, last.y);
-      context.lineTo(last.x, last.y);
-      context.stroke();
-    });
-    canvas.addEventListener('pointermove', (event) => {
-      if (!last) return;
-      for (const item of event.getCoalescedEvents?.() ?? [event]) {
-        const next = point(item);
-        context.beginPath();
-        context.moveTo(last.x, last.y);
-        context.lineTo(next.x, next.y);
-        context.stroke();
-        last = next;
-      }
-    });
-    const end = () => {
-      if (!last) return;
-      last = undefined;
-      strokes++;
-      use.disabled = false;
-    };
-    canvas.addEventListener('pointerup', end);
-    canvas.addEventListener('pointercancel', end);
-
-    function clear() {
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      strokes = 0;
-      use.disabled = true;
-    }
-
-    function close(result: { image: MarkImage; width: number; height: number } | undefined) {
-      document.removeEventListener('keydown', onKey, true);
-      backdrop.remove();
-      resolve(result);
-    }
-
-    async function finish() {
-      if (!strokes) return;
-      // Trim to the drawn part, with a little room for the round line ends.
-      const { width, height } = canvas;
-      const pixels = context.getImageData(0, 0, width, height).data;
-      let minX = width;
-      let minY = height;
-      let maxX = -1;
-      let maxY = -1;
-      for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-          if (pixels[(y * width + x) * 4 + 3] > 0) {
-            minX = Math.min(minX, x);
-            maxX = Math.max(maxX, x);
-            minY = Math.min(minY, y);
-            maxY = Math.max(maxY, y);
-          }
-        }
-      }
-      if (maxX < 0) return close(undefined);
-      const pad = Math.round(2 * pixelRatio);
-      minX = Math.max(0, minX - pad);
-      minY = Math.max(0, minY - pad);
-      maxX = Math.min(width - 1, maxX + pad);
-      maxY = Math.min(height - 1, maxY + pad);
-      const trimmed = document.createElement('canvas');
-      trimmed.width = maxX - minX + 1;
-      trimmed.height = maxY - minY + 1;
-      trimmed.getContext('2d')!.drawImage(canvas, minX, minY, trimmed.width, trimmed.height, 0, 0, trimmed.width, trimmed.height);
-      const blob = await new Promise<Blob | null>((done) => trimmed.toBlob(done, 'image/png'));
-      if (!blob) return close(undefined);
-      const bytes = new Uint8Array(await blob.arrayBuffer());
-      // Drawn at screen size; a signature about 180 points wide at most suits most forms.
-      const points = (trimmed.width / pixelRatio) * 0.75;
-      const shrink = Math.min(1, 180 / points);
-      close({
-        image: { bytes, kind: 'png' },
-        width: points * shrink,
-        height: (trimmed.height / pixelRatio) * 0.75 * shrink,
-      });
-    }
-  });
-}

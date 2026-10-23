@@ -8,7 +8,7 @@ LightPDF is a static web app for editing PDFs and images entirely in the browser
 - The page editor (double-click a page) is on branch `claude/peaceful-allen-u6q9ix`, not yet merged.
 - Everything listed below is built and tested. Nothing is half-done.
 - Not yet verified in real Chrome or Edge: the permission prompts for **Delete originals** (per file and for the folder), and **Save as…** with real files. The tests use stand-ins that follow Chrome's rules; see "Testing".
-- Not yet tried: the page editor on a real touch screen (pen and finger drawing, the signature pad) and with a real pinch on a touchpad.
+- Not yet tried: the page editor on a real touch screen (pen and finger drawing) and with a real pinch on a touchpad.
 - Not yet tried: `LightPDF.html` in Firefox and Safari (only Chromium is available in the cloud environment), and the start scripts on Windows and macOS.
 
 ## The owner's preferences
@@ -61,7 +61,7 @@ download (ZIP when several files) or filesystem.ts writeOutputs ─▶ optional 
 - **One card is one output file.** Each added file becomes a `Doc`. Merging joins `Doc`s and splitting cuts one.
 - **The model is never mutated.** Every function in `src/editor/model.ts` returns a new project, or the same object when nothing changed, which `History.push` treats as no-op. Undo is a stack of snapshots.
 - **Content changes happen only at export.** Page numbers, watermark, compression, format and flattening are settings in the Download panel (`src/editor/settings.ts`), applied by `exportDocs`. The page editor's marks are the same: data on the `PageRef`, drawn by `MarkPainter` when composing, before the extra rotation and before stamps.
-- **The page editor** (`page-editor.ts`, loaded on first use) is a full-screen overlay over the editor, which sets `busy` so its own shortcuts and file drops pause. It keeps a `History` of marks per page key (drafts) and hands all changed pages to `onDone`, committed as one step; Cancel drops the drafts. Research behind the tool set: Sejda, Smallpdf, iLovePDF, PDF24 and PDF.js's own editor all offer text, freehand, highlight, shapes, whiteout, images and a signature; that is the set built.
+- **The page editor** (`page-editor.ts`, loaded on first use) is a full-screen overlay over the editor, which sets `busy` so its own shortcuts and file drops pause. It keeps a `History` of marks per page key (drafts) and hands all changed pages to `onDone`, committed as one step; Cancel drops the drafts. Research behind the tool set: Sejda, Smallpdf, iLovePDF, PDF24 and PDF.js's own editor all offer text, freehand, highlight, shapes, whiteout, images and a signature; that set was built, then the owner asked for the signature tool to be taken out.
 - **Mark coordinates** (`core/marks.ts`): points, y down, on the page as viewers show the *original* file (its own /Rotate, not the editor's extra rotation). An image page is the image at 0.75 pt per pixel; at export the marks are scaled into the image's place on the paper. Text and images carry an `angle` (quarter turns) so text typed on a turned page reads upright there; `PageView` maps page ↔ turned view, `placeIn`/`placedPoint` handle turned boxes. Fonts are the standard 14 (WinAnsi only, same error as stamps). Text baselines use `FONTS[...].baseline` in both the SVG and the PDF, so they match exactly.
 - **Pass-through.** When a `Doc` is exactly one PDF's pages in their original order, `Composer` edits that PDF itself, so bookmarks, links, forms and metadata survive. Otherwise it copies pages into a new PDF, parsing each source once per export.
 
@@ -72,7 +72,7 @@ download (ZIP when several files) or filesystem.ts writeOutputs ─▶ optional 
 | `src/main.ts` | Mounts header and editor; registers the service worker in production. |
 | `src/editor/editor.ts` | The app controller: landing vs. editor, toolbar, document cards, selection, keyboard shortcuts, Download panel, export flow, delete-originals flow. The largest file. |
 | `src/editor/model.ts` | Pure document operations: rotate, delete, duplicate, move (drag), extract, merge, split, rename, reorder, sort, `setPageMarks`. Duplicates and extracts keep a page's marks. |
-| `src/editor/page-editor.ts` | The page editor: tools (Select, Text, Draw, Highlight, Whiteout, Rectangle, Ellipse, Line, Arrow, Image, Signature), the bar of colour/size/thickness, pointer gestures (create, move, resize by corners, line ends), text typed in a `<textarea>` laid over the text, zoom, page navigation, the signature pad dialog. Dynamically imported. |
+| `src/editor/page-editor.ts` | The page editor: tools (Select, Text, Draw, Highlight, Whiteout, Rectangle, Ellipse, Line, Arrow, Image), the bar of colour/size/thickness, pointer gestures (create, move, resize by corners, line ends), text typed in a `<textarea>` laid over the text, zoom, page navigation. Dynamically imported. |
 | `src/editor/marks-svg.ts` | Draws marks as SVG: the editor's layer (with grab areas), and thumbnails of edited pages (an SVG data: URL wrapping the plain thumbnail; nested images must be data: URLs there). Loaded with the page editor. |
 | `src/editor/history.ts` | Undo/redo stack. |
 | `src/editor/sources.ts` | `SourceRegistry`: opens files, keeps an in-memory copy, the PDF.js document, the disk handle, and lazy thumbnails (2 at a time). Also `pageSize` (the marks' space) and `render` (a page for the page editor, turned). |
@@ -139,7 +139,7 @@ download (ZIP when several files) or filesystem.ts writeOutputs ─▶ optional 
   node e2e/make-fixtures.mjs && python3 e2e/make-images.py   # once; needs Pillow
   npm run build && npm run preview &                          # serves http://localhost:4173
   node e2e/editor.mjs    # 40 checks: editing, page and file drag, card rows, More menu, undo, formats, compression, JPEG 2000 + CCITT, persistence, mobile
-  node e2e/page-editor.mjs  # 34 checks: every tool, undo, select/move/resize/delete, image, signature, pages, Done/Cancel, text position in the PDF (incl. turned pages), phone
+  node e2e/page-editor.mjs  # 35 checks: every tool, undo, select/move/resize/delete, image, pages, Done/Cancel, text position in the PDF (incl. turned pages), phone
   node e2e/fs.mjs        # 40 checks: Save as, folders, delete originals, folder and per-file permissions, fallback
   node e2e/offline.mjs   # editing (page editor too) and exporting with the network off
   node e2e/privacy.mjs   # no requests outside the app's origin; works under the CSP in SECURITY.md (sent on every response)
@@ -153,7 +153,7 @@ download (ZIP when several files) or filesystem.ts writeOutputs ─▶ optional 
 
 - Dark variant of the monochrome theme.
 - Save as for a single document (only Download exists on document cards).
-- Page editor: real redaction (remove the text under a box), editing the PDF's existing text, a typed signature, more fonts (embedding a TTF for non-Latin text), copy/paste of marks, sticky-note comments as real PDF annotations.
+- Page editor: real redaction (remove the text under a box), editing the PDF's existing text, more fonts (embedding a TTF for non-Latin text), copy/paste of marks, sticky-note comments as real PDF annotations.
 - Inserting blank pages; selecting pages by typing ranges ("1-3, 7").
 - Password-protected PDFs, signing, OCR for scanned text, Office conversion.
 - Keyboard-only page moving (Alt+arrows) for accessibility.

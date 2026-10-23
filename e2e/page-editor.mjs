@@ -145,19 +145,12 @@ check('Delete removes it', (await marks()) === 7);
 await page.keyboard.press('Control+z');
 check('and undo brings it back', (await marks()) === 8);
 
-// Image and signature
+// Image
 await page.setInputFiles('.page-editor input[type=file]', FX('shape.png'));
 await page.waitForFunction(() => document.querySelectorAll('.pe-overlay .pe-mark image').length === 1);
 check('Image adds the picture, selected', (await page.$$('.pe-handle')).length === 4);
-await page.click('.pe-tools >> text=Signature');
-await page.waitForSelector('.signature-pad');
-const pad = await page.$eval('.signature-pad', (c) => c.getBoundingClientRect().toJSON());
-await drag({ x: pad.x + 40, y: pad.y + 120 }, { x: pad.x + 200, y: pad.y + 60 }, 15);
-await drag({ x: pad.x + 200, y: pad.y + 60 }, { x: pad.x + 300, y: pad.y + 130 }, 15);
-await page.screenshot({ path: SHOT('signature') });
-await page.click('text=Add signature');
-await page.waitForFunction(() => document.querySelectorAll('.pe-overlay .pe-mark image').length === 2);
-check('Signature adds the drawing as an image', (await marks()) === 10);
+check('and keeps what was there', (await marks()) === 9);
+check('there is no signature tool', !(await page.$('.pe-tools >> text=Signature')));
 
 // Next page, a note there, then Done
 await page.click('.pe-bar >> text=›');
@@ -171,7 +164,7 @@ await page.keyboard.type('Second');
 await page.keyboard.press('Escape');
 check('Escape ends typing and keeps the text', (await marks()) === 1);
 await page.click('.pe-bar >> text=‹');
-await page.waitForFunction(() => document.querySelectorAll('.pe-overlay .pe-mark').length === 10);
+await page.waitForFunction(() => document.querySelectorAll('.pe-overlay .pe-mark').length === 9);
 check('going back shows the first page’s marks', true);
 await page.screenshot({ path: SHOT('editor') });
 await page.click('.pe-bar >> text=Done');

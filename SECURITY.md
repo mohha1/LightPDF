@@ -18,6 +18,8 @@ LightPDF is built so that your documents never leave your device. This page expl
 
 The browser test [`e2e/privacy.mjs`](e2e/privacy.mjs) checks this: adding PDFs and images and exporting them as PDF, compressed PDF, JPG, PNG and plain text makes no network request outside the app's own origin. The only outside link in the app is **Source** in the header, which opens this repository when you click it.
 
+The single-file `LightPDF.html` in the download package passes the same check when opened from disk.
+
 ### What is stored, and where
 
 | What | Where | How long |
@@ -46,7 +48,7 @@ LightPDF relies on the browser's sandbox and adds its own limits on top:
 
 PDF files can be crafted to attack the software that opens them. LightPDF reduces that risk as follows:
 
-- PDFs are parsed by PDF.js inside a separate Web Worker.
+- PDFs are parsed by PDF.js inside a separate Web Worker. Its WebAssembly image decoders (JPEG 2000, JBIG2 and CCITT fax) are bundled with the app and also run inside that worker.
 - Pages are drawn onto a canvas and shown as images. The editor doesn't display a PDF's links, form widgets or annotations as live page content.
 - JavaScript embedded in a PDF is never run. LightPDF doesn't enable PDF.js scripting or XFA forms.
 - PDF.js is kept up to date. LightPDF uses PDF.js 6, which is not affected by known issues such as [CVE-2024-4367](https://nvd.nist.gov/vuln/detail/CVE-2024-4367) (fixed in 4.2.67).
@@ -70,13 +72,13 @@ LightPDF must be served over **HTTPS** (or from `localhost`). Browsers only allo
 If your host lets you set response headers, these are recommended:
 
 ```
-Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'
+Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'
 X-Content-Type-Options: nosniff
 Referrer-Policy: no-referrer
 Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
 ```
 
-- The Content Security Policy only lets the page load code from its own site, and `frame-ancestors 'none'` stops other sites from embedding it. [`e2e/privacy.mjs`](e2e/privacy.mjs) tests it against the production build, adding PDFs and images and exporting in every format. `'unsafe-inline'` in `style-src` is needed because the editor sets some styles at runtime. No `'unsafe-eval'` is needed.
+- The Content Security Policy only lets the page load code from its own site, and `frame-ancestors 'none'` stops other sites from embedding it. [`e2e/privacy.mjs`](e2e/privacy.mjs) tests it against the production build, sent with every file, adding PDFs and images and exporting in every format. `'unsafe-inline'` in `style-src` is needed because the editor sets some styles at runtime. `'wasm-unsafe-eval'` lets PDF.js run its WebAssembly image decoders (JPEG 2000, and JBIG2 and CCITT fax in black-and-white scans); without it those images come out blank. It allows WebAssembly only, not JavaScript `eval`, which stays blocked.
 - If you serve LightPDF from a subfolder of a site that hosts other apps, give it its own origin (for example a subdomain) instead, so that its storage and permissions are kept apart.
 - GitHub Pages can't set custom headers. It serves over HTTPS, which is the most important part.
 
@@ -84,7 +86,7 @@ Example for **Netlify** or **Cloudflare Pages**, in a `_headers` file inside `di
 
 ```
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
@@ -93,7 +95,7 @@ Example for **Netlify** or **Cloudflare Pages**, in a `_headers` file inside `di
 Example for **nginx**:
 
 ```nginx
-add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'" always;
+add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'" always;
 add_header X-Content-Type-Options "nosniff" always;
 add_header Referrer-Policy "no-referrer" always;
 add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;

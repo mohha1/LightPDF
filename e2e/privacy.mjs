@@ -1,11 +1,16 @@
 // Checks the claims in SECURITY.md: editing and exporting in every format makes
 // no request outside the app's origin, and works under the recommended CSP.
+// With BASE_URL pointing at the single-file build on disk (file://), only the
+// first check runs: there are no response headers to set a CSP with.
 import { BASE, chromium, FIXTURES } from './env.mjs';
 
 const CSP =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; " +
+  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; " +
   "worker-src 'self' blob:; connect-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'";
+const fromDisk = BASE.startsWith('file:');
 const origin = new URL(BASE).origin;
+const local = (url) =>
+  fromDisk ? /^(file|blob|data):/.test(url) : url.startsWith(origin) || url.startsWith(`blob:${origin}`) || url.startsWith('data:');
 const results = [];
 const check = (name, ok, detail = '') => {
   results.push({ name, ok });
@@ -20,21 +25,22 @@ async function run(withCsp) {
   const outside = [];
   const errors = [];
   page.on('request', (r) => {
-    const url = r.url();
-    if (!url.startsWith(origin) && !url.startsWith(`blob:${origin}`) && !url.startsWith('data:')) outside.push(url);
+    if (!local(r.url())) outside.push(r.url());
   });
   page.on('pageerror', (e) => errors.push(String(e)));
-  page.on('console', (m) => (m.type() === 'error' || /Content Security Policy/.test(m.text())) && errors.push(m.text()));
+  page.on('console', (m) => (m.type() === 'error' || /Content Security Policy|wasm/i.test(m.text())) && errors.push(m.text()));
   if (withCsp) {
-    await page.route(BASE, async (route) => {
+    // On every response, as a host would send it: the PDF.js worker follows its own file's policy.
+    await page.route(`${origin}/**`, async (route) => {
       const response = await route.fetch();
       await route.fulfill({ response, headers: { ...response.headers(), 'content-security-policy': CSP } });
     });
   }
   await page.goto(BASE);
   await page.waitForSelector('.dropzone');
-  await page.setInputFiles('input[type=file]', [`${FIXTURES}alpha.pdf`, `${FIXTURES}photo.jpg`]);
-  await page.waitForFunction(() => document.querySelectorAll('.page img[src]').length === 4 && !document.querySelector('.status:not([hidden])'));
+  // jpx.pdf and ccitt.pdf need PDF.js's WebAssembly decoders.
+  await page.setInputFiles('input[type=file]', ['alpha.pdf', 'photo.jpg', 'jpx.pdf', 'ccitt.pdf'].map((name) => `${FIXTURES}${name}`));
+  await page.waitForFunction(() => document.querySelectorAll('.page img[src]').length === 6 && !document.querySelector('.status:not([hidden])'));
   const formats = [];
   for (const option of [null, 'Recommended', 'JPG', 'PNG', 'Text']) {
     if (option) await page.click(`text=${option}`);
@@ -51,7 +57,7 @@ async function run(withCsp) {
 }
 
 await run(false);
-await run(true);
+if (!fromDisk) await run(true);
 await browser.close();
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);

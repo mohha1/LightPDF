@@ -4,9 +4,10 @@ LightPDF is a static web app for editing PDFs and images entirely in the browser
 
 ## Status
 
-- All work so far is on branch `ccr-4af67b64-rq7vcs`, open as **PR #1** into `main` (https://github.com/mohha1/LightPDF/pull/1). `main` only holds the initial commit.
+- Work reaches `main` through pull requests: #1 (the app), #2 (README, logo, SECURITY.md), #3 (single-file build, zip package, JPEG 2000 and scan fix).
 - Everything listed below is built and tested. Nothing is half-done.
 - Not yet verified in real Chrome: the permission prompt for **Delete originals**, and **Save as…** with real files. The tests use stand-ins that follow Chrome's rules; see "Testing".
+- Not yet tried: `LightPDF.html` in Firefox and Safari (only Chromium is available in the cloud environment), and the start scripts on Windows and macOS.
 
 ## The owner's preferences
 
@@ -28,6 +29,8 @@ npm run dev        # dev server
 npm test           # Vitest unit tests (42)
 npm run build      # tsc --noEmit + vite build into dist/
 npm run preview    # serve dist/ on http://localhost:4173
+npm run build:single  # one-file app, dist-single/LightPDF.html (opens from disk)
+npm run package    # both builds + packaging/ into release/LightPDF.zip (committed)
 ```
 
 Toolchain: Vite 8, TypeScript 7 (`tsc` is the native port), Vitest 5, Node 22. `tsconfig` targets ES2022 with `lib` ES2023 (for `findLastIndex`).
@@ -78,7 +81,10 @@ download (ZIP when several files) or filesystem.ts writeOutputs ─▶ optional 
 | `src/browser/files.ts` | Reading files, image preparation (re-encodes EXIF-rotated JPEGs and non-JPEG/PNG images), ZIP, download. |
 | `src/browser/filesystem.ts` | File System Access API: pickers, drop handles, Save as, permissions, deleting. Includes type declarations the DOM lib lacks. |
 | `src/ui/*` | `h()` DOM helper, icons (only the ones in use), generic options panel, dialog, toast, header. |
-| `vite.config.ts` | `base: './'`; a small plugin that writes `sw.js`, caching every built file for offline use. |
+| `src/browser/pdf-worker.ts`, `pdf-worker.single.ts` | PDF.js worker setup. The single-file build swaps in the second (alias in `vite.config.ts`). |
+| `vite.config.ts` | `base: './'`; a small plugin that writes `sw.js`, caching every built file for offline use. `--mode single` adds `classicWorker()` and `singleFile()` for the one-file build. |
+| `packaging/`, `scripts/package.mjs` | Contents of the zip besides the builds: `server.mjs` (no-dependency local server sending the SECURITY.md headers), start scripts, `README.txt`, third-party licences (the wasm decoders are BSD, which asks for them). The zip is deterministic (fixed dates). `.gitattributes` keeps `start.bat` CRLF. |
+| `release/LightPDF.zip` | The ready-to-run package. Rebuild with `npm run package` after changes. |
 | `tests/` | Unit tests for core, model, history and naming. |
 | `e2e/` | Browser tests (see below). Not run in CI. |
 | `docs/images/` | README logo (`logo.svg`, `logo-dark.svg`; text outlined from Liberation Sans Bold), editor screenshot, and `social-preview.png` (1280×640) for the repository's social preview setting. |
@@ -105,7 +111,11 @@ download (ZIP when several files) or filesystem.ts writeOutputs ─▶ optional 
 - **Undo floor:** the first files added *reset* the history, so undo never empties the editor back to the start page.
 - **Shortcuts:** keyboard shortcuts are ignored while focus is in an input, including checkboxes. Tests that press Ctrl+Z after ticking a box must click the Undo button instead.
 - **Service worker:** matches with `ignoreVary: true`, because `vite preview` (and some hosts) send `Vary: Origin` while the page's `crossorigin` scripts send an Origin header. Without it, offline loads miss the cache.
-- **Opening `dist/index.html` from disk doesn't work** (JavaScript modules over `file://`). It needs any static server.
+- **Opening `dist/index.html` from disk doesn't work** (JavaScript modules over `file://`). It needs any static server, or use the single-file build.
+- **Single-file build** (`LightPDF.html`): everything is inlined into one HTML file, which Chrome runs from `file://`.
+  - Chrome refuses module workers there, and PDF.js always asks for one. `classicWorker()` turns `pdf.worker.min.mjs` into a classic script (drops the final `export`, `import.meta.url` → `self.location.href`, then compiles it with `node:vm` to prove no module syntax is left); `pdf-worker.single.ts` starts module workers as classic ones from a blob URL. PDF.js still creates one worker per document. Don't use `GlobalWorkerOptions.workerPort` instead: PDF.js shares one `PDFWorker` per port and destroying any document then breaks the others.
+  - No service worker, manifest or install as app there (`main.ts` only registers the service worker over http). The origin-private file system isn't available on `file://`, so `e2e/fs.mjs` can't run against it; it passes against the same file served over http.
+- **PDF.js WebAssembly decoders:** JPEG 2000 (`openjpeg.wasm`) and JBIG2 + CCITT fax (`jbig2.wasm`, so most black-and-white scans) come out blank without them. PDF.js asks for them by file name; `pdfjs.ts` passes a `BinaryDataFactory` that maps names to `?url` imports, so they are ordinary hashed assets (precached by the service worker) and data: URLs in the single-file build (`assetsInlineLimit`). Not bundled on purpose: `qcms_bg.wasm` (PDF.js only uses it when the worker fetches by itself, which a custom factory turns off; ICC colours fall back as before), the `*_nowasm_fallback.js` files (only used when WebAssembly can't run) and `quickjs-eval` (PDF scripting). A CSP needs `'wasm-unsafe-eval'` in `script-src`, on the worker's response too.
 - **Bundle:** the app shell is about 21 KB gzipped (JS + CSS). pdf-lib, JSZip and the composer are dynamic imports; keep them out of the main chunk.
 
 ## Testing
@@ -115,10 +125,11 @@ download (ZIP when several files) or filesystem.ts writeOutputs ─▶ optional 
   ```sh
   node e2e/make-fixtures.mjs && python3 e2e/make-images.py   # once; needs Pillow
   npm run build && npm run preview &                          # serves http://localhost:4173
-  node e2e/editor.mjs    # 33 checks: editing, drag, undo, formats, compression, persistence, mobile
+  node e2e/editor.mjs    # 34 checks: editing, drag, undo, formats, compression, JPEG 2000 + CCITT, persistence, mobile
   node e2e/fs.mjs        # 33 checks: Save as, folders, delete originals, permissions, fallback
   node e2e/offline.mjs   # editing and exporting with the network off
-  node e2e/privacy.mjs   # no requests outside the app's origin; works under the CSP in SECURITY.md
+  node e2e/privacy.mjs   # no requests outside the app's origin; works under the CSP in SECURITY.md (sent on every response)
+  BASE_URL=file://$PWD/dist-single/LightPDF.html node e2e/editor.mjs   # any of them (except fs.mjs) against the single file
   ```
   - Playwright comes from a global install (`npm root -g`), or set `PLAYWRIGHT_DIR`. In the cloud environment, Chromium is preinstalled; don't run `playwright install`.
   - Screenshots and downloads go to `e2e/.output/`, which is gitignored along with `e2e/fixtures/`.

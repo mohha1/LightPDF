@@ -3,13 +3,27 @@ const browser = await chromium.launch();
 const context = await browser.newContext({ acceptDownloads: true });
 const page = await context.newPage();
 await page.goto(BASE);
-await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
-await page.reload();
+// The single-file build on disk (file://) needs no service worker to work offline.
+if (!BASE.startsWith('file:')) {
+  await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
+  await page.reload();
+}
 await context.setOffline(true);
 await page.reload();
 await page.waitForSelector('.dropzone', { timeout: 10000 });
-await page.setInputFiles('input[type=file]', [`${FIXTURES}alpha.pdf`, `${FIXTURES}bravo.pdf`]);
-await page.waitForFunction(() => document.querySelectorAll('.page img[src]').length === 8, null, { timeout: 15000 });
+// jpx.pdf needs PDF.js's WebAssembly decoder, which must come from the cache too.
+await page.setInputFiles('input[type=file]', [`${FIXTURES}alpha.pdf`, `${FIXTURES}bravo.pdf`, `${FIXTURES}jpx.pdf`]);
+await page.waitForFunction(() => document.querySelectorAll('.page img[src]').length === 9, null, { timeout: 15000 });
+const decoded = await page.$$eval('.page img', (images) => {
+  const img = images.at(-1);
+  const canvas = Object.assign(document.createElement('canvas'), { width: img.naturalWidth, height: img.naturalHeight });
+  const context = canvas.getContext('2d');
+  context.drawImage(img, 0, 0);
+  const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < data.length; i += 4) if (data[i] + data[i + 1] + data[i + 2] < 384) return true;
+  return false;
+});
+if (!decoded) throw new Error('JPEG 2000 page is blank offline');
 await page.click('.tool >> text=Merge all');
 await page.click('label.checkbox:has-text("Page numbers")');
 const [download] = await Promise.all([page.waitForEvent('download'), page.click('.btn-action')]);

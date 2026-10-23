@@ -181,6 +181,25 @@ r = await exportNow();
 check('compression', r.bytes.length < readFileSync(FX('scan.pdf')).length * 0.5, r.summary);
 await page.click('.choice:has-text("None")');
 
+// JPEG 2000 and CCITT fax images, which PDF.js decodes with WebAssembly
+await page.click('.tool >> text=Start over');
+await page.waitForSelector('.dropzone');
+await add(['jpx.pdf', 'ccitt.pdf']);
+await page.waitForFunction(() => [...document.querySelectorAll('.page img')].filter((img) => img.complete && img.naturalWidth).length === 2);
+// Share of dark pixels in each thumbnail: the circles cover about a third of the page.
+const ink = await page.$$eval('.page img', (images) =>
+  images.map((img) => {
+    const canvas = Object.assign(document.createElement('canvas'), { width: img.naturalWidth, height: img.naturalHeight });
+    const context = canvas.getContext('2d');
+    context.drawImage(img, 0, 0);
+    const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+    let dark = 0;
+    for (let i = 0; i < data.length; i += 4) if (data[i] + data[i + 1] + data[i + 2] < 384) dark++;
+    return Math.round((dark / (data.length / 4)) * 100) / 100;
+  }),
+);
+check('JPEG 2000 and CCITT images render', ink.every((share) => share > 0.15), JSON.stringify(ink));
+
 // Broken files
 await add(['alpha.pdf']).catch(() => {});
 await page.setInputFiles('input[type=file]', [FX('notapdf.pdf')]);

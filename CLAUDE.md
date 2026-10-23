@@ -4,9 +4,9 @@ LightPDF is a static web app for editing PDFs and images entirely in the browser
 
 ## Status
 
-- Work reaches `main` through pull requests: #1 (the app), #2 (README, logo, SECURITY.md), #3 (single-file build, zip package, JPEG 2000 and scan fix).
+- Work reaches `main` through pull requests: #1 (the app), #2 (README, logo, SECURITY.md), #3 (single-file build, zip package, JPEG 2000 and scan fix), #4 (one folder permission for Delete originals).
 - Everything listed below is built and tested. Nothing is half-done.
-- Not yet verified in real Chrome: the permission prompt for **Delete originals**, and **Save as…** with real files. The tests use stand-ins that follow Chrome's rules; see "Testing".
+- Not yet verified in real Chrome or Edge: the permission prompts for **Delete originals** (per file and for the folder), and **Save as…** with real files. The tests use stand-ins that follow Chrome's rules; see "Testing".
 - Not yet tried: `LightPDF.html` in Firefox and Safari (only Chromium is available in the cloud environment), and the start scripts on Windows and macOS.
 
 ## The owner's preferences
@@ -106,6 +106,7 @@ download (ZIP when several files) or filesystem.ts writeOutputs ─▶ optional 
   - Only Chromium on desktop supports any of this. Elsewhere Save as is hidden and Delete originals greyed out.
 - **Deleting:**
   - A file saved over an original is never deleted (`isSameEntry`).
+  - Permission: ticking the box with 2+ files lacking it opens `showDirectoryPicker({ mode: 'readwrite', startIn: firstFile })` (no `id`, so `startIn` wins): one prompt for the whole folder (the owner asked for this; per-file prompts annoyed them in Edge). Allowed folders live in `filesystem.ts` for the visit; a file inside one (`folder.resolve(handle)`) is deleted with `removeEntry` through the folder, not `handle.remove()`, so it doesn't depend on Chrome passing the folder's permission down to file handles. Anything left (other folders, folder dialog cancelled, Downloads/Desktop/Documents which Chromium won't share) falls back to per-file `requestPermission`; the **Allow** link and files added later are always per file.
   - Deleted handles are forgotten (`forgetHandles`, `source.deleted`).
   - The editor keeps in-memory copies, so "Download again" still works after the originals are gone.
 - **Undo floor:** the first files added *reset* the history, so undo never empties the editor back to the start page.
@@ -126,14 +127,14 @@ download (ZIP when several files) or filesystem.ts writeOutputs ─▶ optional 
   node e2e/make-fixtures.mjs && python3 e2e/make-images.py   # once; needs Pillow
   npm run build && npm run preview &                          # serves http://localhost:4173
   node e2e/editor.mjs    # 34 checks: editing, drag, undo, formats, compression, JPEG 2000 + CCITT, persistence, mobile
-  node e2e/fs.mjs        # 33 checks: Save as, folders, delete originals, permissions, fallback
+  node e2e/fs.mjs        # 40 checks: Save as, folders, delete originals, folder and per-file permissions, fallback
   node e2e/offline.mjs   # editing and exporting with the network off
   node e2e/privacy.mjs   # no requests outside the app's origin; works under the CSP in SECURITY.md (sent on every response)
   BASE_URL=file://$PWD/dist-single/LightPDF.html node e2e/editor.mjs   # any of them (except fs.mjs) against the single file
   ```
   - Playwright comes from a global install (`npm root -g`), or set `PLAYWRIGHT_DIR`. In the cloud environment, Chromium is preinstalled; don't run `playwright install`.
   - Screenshots and downloads go to `e2e/.output/`, which is gitignored along with `e2e/fixtures/`.
-  - `fs.mjs` swaps the system pickers for stand-ins backed by the browser's private file system (real handles), and mimics Chrome's permission rules: read-only until allowed, prompt only after a click, removal fails without permission. A real-Chrome check is still worth doing.
+  - `fs.mjs` swaps the system pickers for stand-ins backed by the browser's private file system (real handles), and mimics Chrome's permission rules: read-only until allowed, prompt only after a click, removal fails without permission (for files, or through a folder for `removeEntry`). The folder dialog stand-in returns the folder holding `startIn` and allows it; `folderAnswer = 'cancel'` stands for cancelling or a folder Chromium won't share. A real Chrome or Edge check is still worth doing.
 
 ## Ideas not built yet
 

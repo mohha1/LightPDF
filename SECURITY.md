@@ -38,9 +38,9 @@ LightPDF relies on the browser's sandbox and adds its own limits on top:
 - **Writing.** **Save as…** writes only to the file or folder you pick in the browser's save dialog.
 - **Deleting.** Only **Delete originals** deletes anything, and only under all of these conditions:
   - You ticked the box during this visit. It is off by default and never remembered.
-  - Your browser asked you for permission to edit those files and you allowed it.
+  - Your browser asked you for permission to edit those files, or the folder they're in, and you allowed it.
   - The result has been saved or the download has started. Nothing is deleted before that.
-  - The file is one you added. A saved file that replaced an original is never deleted.
+  - The file is one you added. Permission for a folder is only used to delete the files you added from it, never anything else in it. A saved file that replaced an original is never deleted.
 - Permissions are granted and remembered by your browser, not by LightPDF. You can review or revoke them in the site settings of your browser.
 - **Save as…** and **Delete originals** use the File System Access API, which is only available in Chromium-based browsers on desktop. Elsewhere these features are switched off.
 

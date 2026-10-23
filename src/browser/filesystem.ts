@@ -161,8 +161,32 @@ export async function writeOutputs(destination: Destination, files: OutputFile[]
 
 export interface DeleteResult {
   deleted: string[];
+  /** Handles of the deleted files. */
+  removed: FileSystemFileHandle[];
   /** Files left in place: no permission, already gone, or the file just saved. */
   kept: Array<{ name: string; reason: string }>;
+}
+
+/** The files this page may not yet change or delete. */
+export async function lacksWriteAccess(handles: FileSystemFileHandle[]): Promise<FileSystemFileHandle[]> {
+  const states = await Promise.all(handles.map((handle) => handle.queryPermission?.({ mode: 'readwrite' }).catch(() => 'prompt')));
+  return handles.filter((_, i) => states[i] !== 'granted');
+}
+
+/**
+ * Asks for permission to change these files, so they can be deleted later
+ * without asking again. Browsers only show the prompt right after a click,
+ * so call this synchronously from a click or change handler.
+ * Resolves to the files that are still not allowed.
+ */
+export function requestWriteAccess(handles: FileSystemFileHandle[]): Promise<FileSystemFileHandle[]> {
+  // Every request starts now, while the click still counts.
+  const requests = handles.map((handle) =>
+    (handle.requestPermission?.({ mode: 'readwrite' }) ?? Promise.resolve<PermissionState>('denied')).catch(
+      (): PermissionState => 'denied',
+    ),
+  );
+  return Promise.all(requests).then((states) => handles.filter((_, i) => states[i] !== 'granted'));
 }
 
 /** True when the page may change this file; asks the user if needed (requires a click). */
@@ -186,7 +210,7 @@ export async function deleteFiles(
   written: FileSystemFileHandle[],
   ask: boolean,
 ): Promise<DeleteResult & { needPermission: FileSystemFileHandle[] }> {
-  const result: DeleteResult & { needPermission: FileSystemFileHandle[] } = { deleted: [], kept: [], needPermission: [] };
+  const result: DeleteResult & { needPermission: FileSystemFileHandle[] } = { deleted: [], removed: [], kept: [], needPermission: [] };
   for (const handle of handles) {
     if (await isAny(handle, written)) {
       result.kept.push({ name: handle.name, reason: 'it was replaced by the saved file' });
@@ -199,6 +223,7 @@ export async function deleteFiles(
     try {
       await handle.remove!();
       result.deleted.push(handle.name);
+      result.removed.push(handle);
     } catch (error) {
       const gone = error instanceof DOMException && error.name === 'NotFoundError';
       result.kept.push({ name: handle.name, reason: gone ? 'it was already gone' : 'the browser refused' });

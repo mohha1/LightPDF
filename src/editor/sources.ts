@@ -10,6 +10,8 @@ export interface Source {
   pageCount: number;
   /** The file on disk, when the browser gave access to it. */
   handle?: FileSystemFileHandle;
+  /** Set once LightPDF has deleted the file on disk. */
+  deleted?: boolean;
 }
 
 /** Thumbnails are rendered once at this size and scaled with CSS for zooming. */
@@ -58,6 +60,16 @@ export class SourceRegistry {
 
   get(id: string): Source | undefined {
     return this.sources.get(id);
+  }
+
+  /** Drops the link to files on disk that were deleted; the in-memory copies stay. */
+  forgetHandles(handles: FileSystemFileHandle[]): void {
+    for (const source of this.sources.values()) {
+      if (source.handle && handles.includes(source.handle)) {
+        source.handle = undefined;
+        source.deleted = true;
+      }
+    }
   }
 
   /** A thumbnail that is already rendered, if any. */

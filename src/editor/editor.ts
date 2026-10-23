@@ -6,7 +6,9 @@ import {
   chooseDestination,
   deleteFiles,
   filesFromDrop,
+  lacksWriteAccess,
   pickFiles,
+  requestWriteAccess,
   writeOutputs,
   type DeleteResult,
   type Destination,
@@ -187,6 +189,12 @@ export function mountEditor(root: HTMLElement): void {
       result.status === 'fulfilled' ? [model.createDoc(baseName(result.value.file.name), result.value.id, result.value.pageCount)] : [],
     );
     if (docs.length === 0) return;
+    if (values[DELETE_ORIGINALS] && canDeleteFiles) {
+      // Deleting is switched on: ask for these files too. If the browser no
+      // longer counts the click that added them, the panel offers a button.
+      const handles = results.flatMap((result) => (result.status === 'fulfilled' && result.value.handle ? [result.value.handle] : []));
+      void requestWriteAccess(handles).then(updateWarning);
+    }
     if (project().length === 0) {
       // The first files start the history, so undo never empties the editor.
       history.reset(docs);
@@ -637,13 +645,20 @@ export function mountEditor(root: HTMLElement): void {
 
   function buildExportPanel(): HTMLElement {
     values[HAS_IMAGES] = hasImages();
+    let deleting = Boolean(values[DELETE_ORIGINALS]);
     options = renderOptions(EXPORT_FIELDS, values, () => {
+      if (values[DELETE_ORIGINALS] && !deleting) {
+        // Ask now, while ticking the box still counts as a click; the files
+        // are only deleted after saving.
+        void requestWriteAccess(originalsOf(project()).handles).then(updateWarning);
+      }
+      deleting = Boolean(values[DELETE_ORIGINALS]);
       const remembered = Object.entries(values).filter(([key]) => key !== HAS_IMAGES && key !== DELETE_ORIGINALS);
       writeStorage(SETTINGS_KEY, Object.fromEntries(remembered));
       updateExportPanel();
     });
     summary = h('p', { class: 'export-summary' });
-    warning = h('p', { class: 'export-warning', hidden: true });
+    warning = h('div', { class: 'export-warning', role: 'status', hidden: true });
     downloadButton = h('button', { type: 'button', class: 'btn btn-primary btn-action', onclick: () => void runExport(project(), 'download') });
     saveButton = canSaveAs
       ? h('button', { type: 'button', class: 'btn btn-light btn-save', onclick: () => void runExport(project(), 'save') }, 'Save as…')
@@ -675,10 +690,45 @@ export function mountEditor(root: HTMLElement): void {
     summary.textContent = `${plural(docs, 'file')} · ${plural(pages, 'page')}${outputs > 1 ? ' · downloads as a ZIP' : ''}`;
     downloadButton.textContent = label;
     if (saveButton) saveButton.title = outputs > 1 ? 'Choose a folder to save the files in' : 'Choose where to save the file';
-    if (warning) {
-      warning.hidden = !values[DELETE_ORIGINALS];
-      warning.textContent = 'The files you added will be deleted from your computer after saving.';
+    void updateWarning();
+  }
+
+  let warningToken = 0;
+
+  /** Explains what will be deleted, and offers to grant any missing permission. */
+  async function updateWarning() {
+    if (!warning) return;
+    const token = ++warningToken;
+    if (!values[DELETE_ORIGINALS]) {
+      warning.hidden = true;
+      return;
     }
+    const { handles, missing } = originalsOf(project());
+    const pending = await lacksWriteAccess(handles);
+    if (token !== warningToken || !warning) return;
+
+    const parts: Child[] = [h('p', {}, 'The files you added will be deleted from your computer after saving.')];
+    if (pending.length) {
+      parts.push(
+        h(
+          'p',
+          {},
+          `${pending.length === handles.length ? 'Your browser needs your permission first.' : `${plural(pending.length, 'file')} still need${pending.length === 1 ? 's' : ''} your permission.`} `,
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'warning-action',
+              onclick: () => void requestWriteAccess(pending).then(updateWarning),
+            },
+            'Allow',
+          ),
+        ),
+      );
+    }
+    if (missing.length) parts.push(h('p', {}, `${listNames(missing)} can’t be deleted: added without access to the file on disk.`));
+    replaceChildren(warning, parts);
+    warning.hidden = false;
   }
 
   /** The disk files behind the documents being exported. */
@@ -688,7 +738,7 @@ export function mountEditor(root: HTMLElement): void {
     for (const id of new Set(docs.flatMap((doc) => doc.pages.map((page) => page.source)))) {
       const source = registry.get(id);
       if (source?.handle) handles.push(source.handle);
-      else if (source) missing.push(source.file.name);
+      else if (source && !source.deleted) missing.push(source.file.name);
     }
     return { handles, missing };
   }
@@ -708,12 +758,14 @@ export function mountEditor(root: HTMLElement): void {
     let pending = cleanup.handles;
     if (cleanup.now && pending.length) {
       const result = await deleteFiles(pending, cleanup.written, false);
+      registry.forgetHandles(result.removed);
       lines.push(...describeDeletion(result, false, []));
       pending = result.needPermission;
     }
     if (cleanup.missing.length) {
       lines.push(`Can’t delete ${listNames(cleanup.missing)}: added without access to the file on disk.`);
     }
+    void updateWarning();
     if (pending.length === 0) return dialog.show({ ...view, lines });
 
     const names = listNames(pending.map((handle) => handle.name));
@@ -722,6 +774,8 @@ export function mountEditor(root: HTMLElement): void {
       primary: true,
       run: async () => {
         const result = await deleteFiles(pending, cleanup.written, true);
+        registry.forgetHandles(result.removed);
+        void updateWarning();
         dialog.show({ ...view, lines: [...lines, ...describeDeletion(result, true, result.needPermission)] });
       },
     };

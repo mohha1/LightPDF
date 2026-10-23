@@ -1,5 +1,5 @@
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { setUpWorker } from './pdf-worker';
 
 type PdfJs = typeof import('pdfjs-dist');
 
@@ -8,7 +8,7 @@ let library: Promise<PdfJs> | undefined;
 /** Loads PDF.js on first use so the home page stays small. */
 function pdfjs(): Promise<PdfJs> {
   library ??= import('pdfjs-dist').then((lib) => {
-    lib.GlobalWorkerOptions.workerSrc = workerUrl;
+    setUpWorker(lib.GlobalWorkerOptions);
     return lib;
   });
   return library;

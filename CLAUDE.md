@@ -28,6 +28,8 @@ npm run dev        # dev server
 npm test           # Vitest unit tests (42)
 npm run build      # tsc --noEmit + vite build into dist/
 npm run preview    # serve dist/ on http://localhost:4173
+npm run build:single  # one-file app, dist-single/LightPDF.html (opens from disk)
+npm run package    # both builds + packaging/ into release/LightPDF.zip (committed)
 ```
 
 Toolchain: Vite 8, TypeScript 7 (`tsc` is the native port), Vitest 5, Node 22. `tsconfig` targets ES2022 with `lib` ES2023 (for `findLastIndex`).
@@ -78,7 +80,10 @@ download (ZIP when several files) or filesystem.ts writeOutputs ─▶ optional 
 | `src/browser/files.ts` | Reading files, image preparation (re-encodes EXIF-rotated JPEGs and non-JPEG/PNG images), ZIP, download. |
 | `src/browser/filesystem.ts` | File System Access API: pickers, drop handles, Save as, permissions, deleting. Includes type declarations the DOM lib lacks. |
 | `src/ui/*` | `h()` DOM helper, icons (only the ones in use), generic options panel, dialog, toast, header. |
-| `vite.config.ts` | `base: './'`; a small plugin that writes `sw.js`, caching every built file for offline use. |
+| `src/browser/pdf-worker.ts`, `pdf-worker.single.ts` | PDF.js worker setup. The single-file build swaps in the second (alias in `vite.config.ts`). |
+| `vite.config.ts` | `base: './'`; a small plugin that writes `sw.js`, caching every built file for offline use. `--mode single` adds `classicWorker()` and `singleFile()` for the one-file build. |
+| `packaging/`, `scripts/package.mjs` | Contents of the zip besides the builds: `server.mjs` (no-dependency local server sending the SECURITY.md headers), start scripts, `README.txt`. The zip is deterministic (fixed dates). `.gitattributes` keeps `start.bat` CRLF. |
+| `release/LightPDF.zip` | The ready-to-run package. Rebuild with `npm run package` after changes. |
 | `tests/` | Unit tests for core, model, history and naming. |
 | `e2e/` | Browser tests (see below). Not run in CI. |
 | `docs/images/` | README logo (`logo.svg`, `logo-dark.svg`; text outlined from Liberation Sans Bold), editor screenshot, and `social-preview.png` (1280×640) for the repository's social preview setting. |
@@ -105,7 +110,11 @@ download (ZIP when several files) or filesystem.ts writeOutputs ─▶ optional 
 - **Undo floor:** the first files added *reset* the history, so undo never empties the editor back to the start page.
 - **Shortcuts:** keyboard shortcuts are ignored while focus is in an input, including checkboxes. Tests that press Ctrl+Z after ticking a box must click the Undo button instead.
 - **Service worker:** matches with `ignoreVary: true`, because `vite preview` (and some hosts) send `Vary: Origin` while the page's `crossorigin` scripts send an Origin header. Without it, offline loads miss the cache.
-- **Opening `dist/index.html` from disk doesn't work** (JavaScript modules over `file://`). It needs any static server.
+- **Opening `dist/index.html` from disk doesn't work** (JavaScript modules over `file://`). It needs any static server, or use the single-file build.
+- **Single-file build** (`LightPDF.html`): everything is inlined into one HTML file, which Chrome runs from `file://`.
+  - Chrome refuses module workers there, and PDF.js always asks for one. `classicWorker()` turns `pdf.worker.min.mjs` into a classic script (drops the final `export`, `import.meta.url` → `self.location.href`, then compiles it with `node:vm` to prove no module syntax is left); `pdf-worker.single.ts` starts module workers as classic ones from a blob URL. PDF.js still creates one worker per document. Don't use `GlobalWorkerOptions.workerPort` instead: PDF.js shares one `PDFWorker` per port and destroying any document then breaks the others.
+  - No service worker, manifest or install as app there (`main.ts` only registers the service worker over http). The origin-private file system isn't available on `file://`, so `e2e/fs.mjs` can't run against it; it passes against the same file served over http.
+- **JPEG 2000 images don’t render** in either build (JBIG2 is probably affected too, untested): PDF.js 6 needs its `wasmUrl` option (wasm decoders from `pdfjs-dist/wasm/`), which isn't set yet.
 - **Bundle:** the app shell is about 21 KB gzipped (JS + CSS). pdf-lib, JSZip and the composer are dynamic imports; keep them out of the main chunk.
 
 ## Testing
@@ -119,6 +128,7 @@ download (ZIP when several files) or filesystem.ts writeOutputs ─▶ optional 
   node e2e/fs.mjs        # 33 checks: Save as, folders, delete originals, permissions, fallback
   node e2e/offline.mjs   # editing and exporting with the network off
   node e2e/privacy.mjs   # no requests outside the app's origin; works under the CSP in SECURITY.md
+  BASE_URL=file://$PWD/dist-single/LightPDF.html node e2e/editor.mjs   # any of them (except fs.mjs) against the single file
   ```
   - Playwright comes from a global install (`npm root -g`), or set `PLAYWRIGHT_DIR`. In the cloud environment, Chromium is preinstalled; don't run `playwright install`.
   - Screenshots and downloads go to `e2e/.output/`, which is gitignored along with `e2e/fixtures/`.

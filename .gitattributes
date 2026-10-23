@@ -1,0 +1,4 @@
+# The Windows starter needs CRLF line endings, the shell starters LF.
+packaging/start.bat text eol=crlf
+packaging/*.sh text eol=lf
+packaging/*.command text eol=lf

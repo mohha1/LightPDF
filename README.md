@@ -13,7 +13,7 @@ Merge, split, reorder, rotate, compress and convert PDFs and images. Nothing is 
 [![Uploads: none](https://img.shields.io/badge/uploads-none-111111?style=flat-square)](SECURITY.md)
 [![Works offline](https://img.shields.io/badge/works-offline-111111?style=flat-square)](#install-and-offline-use)
 
-[Features](#features) · [How it works](#how-it-works) · [Privacy and security](#privacy-and-security) · [Self-hosting](#self-hosting) · [Development](#development)
+[Features](#features) · [How it works](#how-it-works) · [Privacy and security](#privacy-and-security) · [Run it offline](#run-it-offline-without-installing) · [Self-hosting](#self-hosting) · [Development](#development)
 
 </div>
 
@@ -125,6 +125,15 @@ LightPDF is designed so that your documents never leave your computer:
 
 Read [SECURITY.md](SECURITY.md) for the full security model, recommended server headers, and how to report a vulnerability privately.
 
+## Run it offline without installing
+
+`npm run package` builds `release/LightPDF.zip`, a ready-to-run copy (the current one is [in the repository](release/LightPDF.zip)):
+
+- **`LightPDF.html`** is the whole app in one file. Double-click it to open it in your browser: no server, no installation and no internet connection needed. It can be copied anywhere or sent to someone.
+- **`local-server/`** holds the same app as a website, with start scripts for Windows, macOS and Linux that serve it on `http://localhost` (Node.js or Python needed). Use it to install LightPDF as an app, or if a browser won't run `LightPDF.html` from disk.
+
+`LightPDF.html` comes from the same source as the website and behaves the same; the browser tests pass against both. Because a page opened from disk can't start JavaScript module workers, the single-file build runs the PDF.js worker as a classic script instead. Each document still gets its own worker.
+
 ## Self-hosting
 
 LightPDF is a folder of static files, so any static web host can serve it.
@@ -149,6 +158,8 @@ npm install
 npm run dev        # start a local dev server
 npm test           # unit tests for the PDF processing and editor model
 npm run build      # type-check and build into dist/
+npm run build:single  # build the single-file app into dist-single/LightPDF.html
+npm run package    # build both and pack them into release/LightPDF.zip
 npm run preview    # serve the production build on http://localhost:4173
 ```
 
@@ -170,6 +181,8 @@ src/
   ui/        Shared UI pieces: DOM helper, icons, options panel, dialog, toast.
 tests/       Vitest unit tests for src/core and the editor model.
 e2e/         Playwright browser tests against the production build.
+packaging/   Local server, start scripts and readme for the zip package.
+scripts/     package.mjs, which builds release/LightPDF.zip.
 ```
 
 ### Architecture

@@ -3,8 +3,11 @@ const browser = await chromium.launch();
 const context = await browser.newContext({ acceptDownloads: true });
 const page = await context.newPage();
 await page.goto(BASE);
-await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
-await page.reload();
+// The single-file build on disk (file://) needs no service worker to work offline.
+if (!BASE.startsWith('file:')) {
+  await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
+  await page.reload();
+}
 await context.setOffline(true);
 await page.reload();
 await page.waitForSelector('.dropzone', { timeout: 10000 });

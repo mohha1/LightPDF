@@ -18,6 +18,8 @@ LightPDF is built so that your documents never leave your device. This page expl
 
 The browser test [`e2e/privacy.mjs`](e2e/privacy.mjs) checks this: adding PDFs and images and exporting them as PDF, compressed PDF, JPG, PNG and plain text makes no network request outside the app's own origin. The only outside link in the app is **Source** in the header, which opens this repository when you click it.
 
+The single-file `LightPDF.html` in the download package passes the same check when opened from disk.
+
 ### What is stored, and where
 
 | What | Where | How long |

@@ -129,6 +129,12 @@ check('drag moves a whole file', JSON.stringify(await layout()) === JSON.stringi
 await page.click('.tool:has-text("Undo")');
 check('undo file drag', JSON.stringify(await layout()) === JSON.stringify(before));
 
+// The More menu: opens with focus on its first item, closes with Escape
+await page.click('.doc >> nth=0 >> .doc-more');
+check('menu opens', await page.evaluate(() => document.activeElement?.classList.contains('menu-item')));
+await page.keyboard.press('Escape');
+check('menu closes with Escape', (await page.$$('.menu')).length === 0 && (await page.$eval('.doc-more', (b) => b.getAttribute('aria-expanded'))) === 'false');
+
 // Split with scissors after bravo page 2
 await page.hover(card(1, 1));
 await page.click(`${card(1, 1)} >> .split-gap`);
@@ -137,6 +143,7 @@ check('scissors split', JSON.stringify(await layout()) === JSON.stringify(['alph
 // Rename, merge with next, extract, delete with undo toast
 await page.fill('.doc >> nth=1 >> .doc-name', 'Chapter 2');
 await page.press('.doc >> nth=1 >> .doc-name', 'Enter');
+await page.click('.doc >> nth=1 >> .doc-more');
 await page.click('.doc >> nth=1 >> [data-action="doc-merge-next"]');
 check('rename + merge with next', (await layout())[1] === 'Chapter 2: bravo.3 bravo.4 alpha.1 bravo.1@90 bravo.2 bravo.5', (await layout())[1]);
 await page.click(card(1, 0));
@@ -165,6 +172,7 @@ await page.click('label.checkbox:has-text("Watermark")');
 await page.screenshot({ path: SHOT('before-undo') });
 while (await page.isEnabled('.tool[title^="Undo"]')) await page.click('.tool[title^="Undo"]');
 check('undo to the start', (await page.$$('.doc')).length === 2 && (await page.$$('.page')).length === 8);
+await page.click('.doc >> nth=0 >> .doc-more');
 await page.click('.doc >> nth=0 >> [data-action="doc-explode"]');
 check('split into single pages', (await page.$$('.doc')).length === 4);
 r = await exportNow('.doc >> nth=1 >> [data-action="doc-download"]');
@@ -221,6 +229,20 @@ await add(['alpha.pdf']).catch(() => {});
 await page.setInputFiles('input[type=file]', [FX('notapdf.pdf')]);
 await page.waitForSelector('.toast');
 check('broken file toast', /notapdf\.pdf/.test(await page.textContent('.toast')), await page.textContent('.toast'));
+
+// Cards fill every row but the last: each row's last card ends at the canvas's right edge
+await add(['bravo.pdf', 'photo.jpg', 'shape.png', 'rotated.jpg', 'pic.webp', 'scan.pdf', 'form.pdf']);
+const rowsFill = await page.evaluate(() => {
+  const right = document.querySelector('.editor-canvas').getBoundingClientRect().right;
+  const rows = new Map();
+  for (const doc of document.querySelectorAll('.doc')) {
+    const box = doc.getBoundingClientRect();
+    rows.set(Math.round(box.top), Math.max(rows.get(Math.round(box.top)) ?? 0, box.right));
+  }
+  const ends = [...rows.values()].slice(0, -1);
+  return ends.length >= 2 && ends.every((end) => Math.abs(end - right) < 1);
+});
+check('cards fill each row', rowsFill);
 
 // Settings persist across reloads
 await page.click('.choice:has-text("PNG")');

@@ -33,6 +33,8 @@ import { SourceRegistry } from './sources';
 const SETTINGS_KEY = 'lightpdf:export-settings';
 const ZOOM_KEY = 'lightpdf:zoom';
 const ZOOM = { min: 100, max: 260, default: 150 };
+/** Cards: the narrowest a card's inside may be (its four action buttons), and the page size on narrow screens. */
+const CARD = { minInner: 104, narrowThumb: 112, narrow: '(max-width: 800px)' };
 
 class Cancelled extends Error {}
 
@@ -264,10 +266,13 @@ export function mountEditor(root: HTMLElement): void {
   let saveButton: HTMLButtonElement | undefined;
   let warning: HTMLElement | undefined;
   let observer: IntersectionObserver | undefined;
+  let resizer: ResizeObserver | undefined;
 
   function render() {
     if (project().length === 0) {
       observer?.disconnect();
+      resizer?.disconnect();
+      closeMenu();
       toolbar = canvas = undefined;
       replaceChildren(screen, renderLanding(chooseFiles));
       return;
@@ -280,7 +285,9 @@ export function mountEditor(root: HTMLElement): void {
 
   function buildWorkspace() {
     toolbar = h('div', { class: 'editor-toolbar', role: 'toolbar', 'aria-label': 'Edit pages' });
-    canvas = h('div', { class: 'editor-canvas', style: `--thumb-size:${zoom}px` });
+    canvas = h('div', { class: 'editor-canvas' });
+    resizer = new ResizeObserver(layoutCards);
+    resizer.observe(canvas);
     canvas.addEventListener('click', onCanvasClick);
     canvas.addEventListener('keydown', onCanvasKey);
     enablePageDrag(canvas, {
@@ -377,7 +384,7 @@ export function mountEditor(root: HTMLElement): void {
           'aria-label': 'Thumbnail size',
           oninput: (event: Event) => {
             zoom = Number((event.target as HTMLInputElement).value);
-            canvas?.style.setProperty('--thumb-size', `${zoom}px`);
+            layoutCards();
             writeStorage(ZOOM_KEY, zoom);
           },
         }),
@@ -386,8 +393,45 @@ export function mountEditor(root: HTMLElement): void {
     );
   }
 
+  /**
+   * Fits as many columns as the thumbnail size allows and gives each card one
+   * per page, up to the full row; the grid stretches them to fill it. Rows
+   * don't end in holes: a card that doesn't fit in what is left of a row takes
+   * that space and wraps its pages, unless that makes it more than one row of
+   * pages taller; then the row's last card widens instead, its pages keeping
+   * their size.
+   */
+  function layoutCards() {
+    if (!canvas) return;
+    const docs = [...canvas.querySelectorAll<HTMLElement>('.doc')];
+    const gap = parseFloat(getComputedStyle(canvas).columnGap) || 0;
+    const pad = docs[0] ? parseFloat(getComputedStyle(docs[0]).paddingLeft) : 0;
+    const thumb = matchMedia(CARD.narrow).matches ? CARD.narrowThumb : zoom;
+    const cell = Math.max(thumb, CARD.minInner) + 2 * pad + 2;
+    const cols = Math.max(1, Math.floor((canvas.clientWidth + gap) / (cell + gap)));
+    canvas.style.setProperty('--cols', String(cols));
+    let used = 0;
+    let last: { doc: HTMLElement; span: number } | undefined;
+    for (const doc of docs) {
+      const pages = Number(doc.dataset.count);
+      let span = Math.min(pages, cols);
+      const free = cols - used;
+      if (span > free) {
+        if (Math.ceil(pages / free) <= Math.ceil(pages / span) + 1) span = free;
+        else {
+          last?.doc.style.setProperty('--span', String(last.span + free));
+          used = 0;
+        }
+      }
+      doc.style.setProperty('--span', String(span));
+      used = (used + span) % cols;
+      last = { doc, span };
+    }
+  }
+
   function renderCanvas() {
     if (!canvas) return;
+    closeMenu();
     observer?.disconnect();
     const io = new IntersectionObserver(
       (entries) => {
@@ -407,6 +451,7 @@ export function mountEditor(root: HTMLElement): void {
 
     const docs = project();
     replaceChildren(canvas, docs.map((doc, i) => renderDoc(doc, i, docs.length)));
+    layoutCards();
     canvas.querySelectorAll<HTMLImageElement>('img[data-source]:not([src])').forEach((img) => io.observe(img));
   }
 
@@ -425,7 +470,13 @@ export function mountEditor(root: HTMLElement): void {
 
     return h(
       'section',
-      { class: 'doc', 'data-doc': doc.id, 'data-index': index, 'data-count': doc.pages.length, 'aria-label': doc.name },
+      {
+        class: 'doc',
+        'data-doc': doc.id,
+        'data-index': index,
+        'data-count': doc.pages.length,
+        'aria-label': doc.name,
+      },
       h(
         'header',
         { class: 'doc-header', title: total > 1 ? 'Drag to move this file' : undefined },
@@ -458,17 +509,30 @@ export function mountEditor(root: HTMLElement): void {
             }
           },
         }),
-        h('span', { class: 'doc-meta' }, plural(doc.pages.length, 'page')),
         h(
           'div',
-          { class: 'doc-actions' },
-          action('rotateRight', 'Rotate all pages', 'doc-rotate'),
-          action('split', 'Split into single pages', 'doc-explode', doc.pages.length < 2),
-          action('merge', 'Merge with the next file', 'doc-merge-next', index === total - 1),
-          action('chevronLeft', 'Move left', 'doc-up', index === 0),
-          action('chevronRight', 'Move right', 'doc-down', index === total - 1),
-          action('download', 'Download this file', 'doc-download'),
-          action('trash', 'Remove this file', 'doc-delete'),
+          { class: 'doc-bar' },
+          h(
+            'div',
+            { class: 'doc-actions' },
+            action('rotateRight', 'Rotate all pages', 'doc-rotate'),
+            action('download', 'Download this file', 'doc-download'),
+            action('trash', 'Remove this file', 'doc-delete'),
+            h(
+              'button',
+              {
+                type: 'button',
+                class: 'icon-button doc-more',
+                title: 'More',
+                'aria-label': `More actions: ${doc.name}`,
+                'aria-haspopup': 'menu',
+                'aria-expanded': 'false',
+                'data-action': 'doc-more',
+              },
+              icon('more', 'icon icon-sm'),
+            ),
+          ),
+          h('span', { class: 'doc-meta' }, plural(doc.pages.length, 'page')),
         ),
       ),
       h('div', { class: 'doc-pages' }, doc.pages.map((page, position) => renderPage(doc, page, position))),
@@ -569,11 +633,77 @@ export function mountEditor(root: HTMLElement): void {
     const card = element.closest<HTMLElement>('.page');
     const docElement = element.closest<HTMLElement>('.doc');
     const button = element.closest<HTMLElement>('[data-action]');
-    if (button) {
+    if (button?.dataset.action === 'doc-more') {
+      toggleMenu(button, docElement!);
+    } else if (button) {
       runAction(button.dataset.action!, card?.dataset.key, docElement?.dataset.doc, Number(card?.dataset.position));
     } else if (card) {
       togglePage(card.dataset.key!, event.shiftKey);
     }
+  }
+
+  // ------------------------------------------------------------------ card menu
+
+  let closeMenu = () => {};
+
+  /** Opens the less common file actions under a card's "More" button. */
+  function toggleMenu(button: HTMLElement, card: HTMLElement) {
+    const wasOpen = button.getAttribute('aria-expanded') === 'true';
+    closeMenu();
+    if (wasOpen) return;
+    const docs = project();
+    const index = docs.findIndex((doc) => doc.id === card.dataset.doc);
+    const doc = docs[index];
+    if (!doc) return;
+    const item = (label: string, action: string, disabled: boolean) =>
+      h('button', { type: 'button', class: 'menu-item', role: 'menuitem', 'data-action': action, disabled }, label);
+    const menu = h(
+      'div',
+      { class: 'menu', role: 'menu', 'aria-label': `More actions: ${doc.name}` },
+      item('Split into single pages', 'doc-explode', doc.pages.length < 2),
+      item('Merge with the next file', 'doc-merge-next', index === docs.length - 1),
+      item('Move left', 'doc-up', index === 0),
+      item('Move right', 'doc-down', index === docs.length - 1),
+    );
+    menu.style.top = `${button.offsetTop + button.offsetHeight + 4}px`;
+    menu.style.left = `${button.offsetLeft}px`;
+    card.append(menu);
+    card.classList.add('menu-open');
+    button.setAttribute('aria-expanded', 'true');
+    // Keep it on screen: open towards the left when it would run off the right edge.
+    if (menu.getBoundingClientRect().right > document.documentElement.clientWidth - 8) {
+      menu.style.left = 'auto';
+      menu.style.right = `${card.clientWidth - button.offsetLeft - button.offsetWidth}px`;
+    }
+    const items = () => [...menu.querySelectorAll<HTMLButtonElement>('.menu-item:not(:disabled)')];
+    items()[0]?.focus();
+
+    const onPointer = (event: PointerEvent) => {
+      if (!menu.contains(event.target as Node) && !button.contains(event.target as Node)) closeMenu();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      const list = items();
+      const at = list.indexOf(document.activeElement as HTMLButtonElement);
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        closeMenu();
+        button.focus();
+      } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        list[(at + (event.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length]?.focus();
+      } else if (event.key === 'Tab') {
+        closeMenu();
+      }
+    };
+    document.addEventListener('pointerdown', onPointer, true);
+    menu.addEventListener('keydown', onKey);
+    closeMenu = () => {
+      document.removeEventListener('pointerdown', onPointer, true);
+      menu.remove();
+      card.classList.remove('menu-open');
+      button.setAttribute('aria-expanded', 'false');
+      closeMenu = () => {};
+    };
   }
 
   function onCanvasKey(event: KeyboardEvent) {

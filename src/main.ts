@@ -1,10 +1,10 @@
 import './styles.css';
 import { mountEditor } from './editor/editor';
 import { h } from './ui/dom';
-import { renderFooter, renderHeader } from './ui/layout';
+import { renderHeader } from './ui/layout';
 
 const main = h('main', { id: 'main' });
-document.body.append(renderHeader(), main, renderFooter());
+document.body.append(renderHeader(), main);
 mountEditor(main);
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator && location.protocol.startsWith('http')) {

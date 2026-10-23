@@ -233,34 +233,27 @@ export function mountEditor(root: HTMLElement): void {
       onDrop: (keys, target) => commit(model.movePages(project(), new Set(keys), target.doc, target.position)),
     });
 
-    const hint = h(
-      'p',
-      { class: 'canvas-hint' },
-      h('span', { class: 'hint-pointer' }, 'Click pages to select them. Drag pages to reorder them or move them to another file. Use the scissors between pages to split.'),
-      h('span', { class: 'hint-touch' }, 'Tap pages to select them. Drag the dotted handle to move a page. Use the scissors to split.'),
-    );
     replaceChildren(
       screen,
       h(
         'div',
         { class: 'editor' },
         toolbar,
-        h('div', { class: 'editor-body' }, h('div', { class: 'editor-main' }, hint, canvas), buildExportPanel()),
+        h('div', { class: 'editor-body' }, h('div', { class: 'editor-main' }, canvas), buildExportPanel()),
       ),
     );
   }
 
   function toolButton(
-    name: IconName,
     label: string,
     onclick: () => void,
     { disabled = false, title = label, primary = false } = {},
   ): HTMLButtonElement {
     return h(
       'button',
-      { type: 'button', class: `tool${primary ? ' tool-primary' : ''}`, title, 'aria-label': title, disabled, onclick },
-      icon(name, 'icon icon-sm'),
-      h('span', { class: 'tool-label' }, label),
+      { type: 'button', class: `tool${primary ? ' tool-primary' : ''}`, title, disabled, onclick },
+      primary && icon('plus', 'icon icon-sm'),
+      label,
     );
   }
 
@@ -273,49 +266,48 @@ export function mountEditor(root: HTMLElement): void {
 
     replaceChildren(
       toolbar,
-      group(toolButton('plus', 'Add files', () => fileInput.click(), { primary: true })),
+      group(toolButton('Add files', () => fileInput.click(), { primary: true })),
       group(
-        toolButton('undo', 'Undo', undo, { disabled: !history.canUndo, title: 'Undo (Ctrl+Z)' }),
-        toolButton('redo', 'Redo', redo, { disabled: !history.canRedo, title: 'Redo (Ctrl+Shift+Z)' }),
+        toolButton('Undo', undo, { disabled: !history.canUndo, title: 'Undo (Ctrl+Z)' }),
+        toolButton('Redo', redo, { disabled: !history.canRedo, title: 'Redo (Ctrl+Shift+Z)' }),
       ),
       group(
         h('span', { class: 'selection-info', 'aria-live': 'polite' }, none ? 'No pages selected' : `${plural(count, 'page')} selected`),
         none
-          ? toolButton('checkAll', 'Select all', selectAll, { title: 'Select all pages (Ctrl+A)' })
-          : toolButton('close', 'Clear', clearSelection, { title: 'Clear selection (Esc)' }),
+          ? toolButton('Select all', selectAll, { title: 'Select all pages (Ctrl+A)' })
+          : toolButton('Clear', clearSelection, { title: 'Clear selection (Esc)' }),
       ),
       group(
-        toolButton('rotateLeft', 'Left', () => commit(model.rotatePages(project(), selection, -90)), {
+        toolButton('Rotate left', () => commit(model.rotatePages(project(), selection, -90)), {
           disabled: none,
           title: 'Rotate selected pages left (Shift+R)',
         }),
-        toolButton('rotateRight', 'Right', () => commit(model.rotatePages(project(), selection, 90)), {
+        toolButton('Rotate right', () => commit(model.rotatePages(project(), selection, 90)), {
           disabled: none,
           title: 'Rotate selected pages right (R)',
         }),
-        toolButton('copy', 'Duplicate', () => commit(model.duplicatePages(project(), selection)), {
+        toolButton('Duplicate', () => commit(model.duplicatePages(project(), selection)), {
           disabled: none,
           title: 'Duplicate selected pages',
         }),
-        toolButton('extract', 'New file', () => commit(model.extractPages(project(), selection)), {
+        toolButton('New file', () => commit(model.extractPages(project(), selection)), {
           disabled: none,
           title: 'Copy selected pages into a new file',
         }),
-        toolButton('trash', 'Delete', () => deletePages(new Set(selection)), {
+        toolButton('Delete', () => deletePages(new Set(selection)), {
           disabled: none,
           title: 'Delete selected pages (Del)',
         }),
       ),
       docs.length > 1 &&
         group(
-          toolButton('merge', 'Merge all', () => commit(model.mergeDocs(project())), { title: 'Merge all files into one' }),
-          toolButton('sort', 'Sort A–Z', () => commit(model.sortDocsByName(project())), { title: 'Sort files by name' }),
+          toolButton('Merge all', () => commit(model.mergeDocs(project())), { title: 'Merge all files into one' }),
+          toolButton('Sort A–Z', () => commit(model.sortDocsByName(project())), { title: 'Sort files by name' }),
         ),
       h('div', { class: 'tool-spacer' }),
       h(
         'label',
         { class: 'zoom', title: 'Thumbnail size' },
-        icon('zoom', 'icon icon-sm'),
         h('input', {
           type: 'range',
           min: ZOOM.min,
@@ -330,7 +322,7 @@ export function mountEditor(root: HTMLElement): void {
           },
         }),
       ),
-      toolButton('restart', 'Start over', startOver, { title: 'Remove all files and start over' }),
+      toolButton('Start over', startOver, { title: 'Remove all files and start over' }),
     );
   }
 
@@ -634,7 +626,7 @@ export function mountEditor(root: HTMLElement): void {
           ? docs === 1 ? 'Download text' : `Download ${docs} text files`
           : pages === 1 ? 'Download image' : `Download ${pages} images`;
     summary.textContent = `${plural(docs, 'file')} · ${plural(pages, 'page')}${outputs > 1 ? ' · saved as a ZIP' : ''}`;
-    replaceChildren(downloadButton, icon('download'), label);
+    downloadButton.textContent = label;
   }
 
   async function runExport(docs: readonly model.Doc[]) {

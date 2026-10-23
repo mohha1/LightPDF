@@ -1,16 +1,12 @@
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
+import { logo } from '../ui/logo';
 
 export function renderLanding(onSelect: () => void): HTMLElement {
   return h(
     'div',
     { class: 'landing' },
-    h('h1', {}, 'Edit PDFs in one place'),
-    h(
-      'p',
-      { class: 'landing-lead' },
-      'Merge, split, reorder, rotate, compress and convert PDFs and images. Files stay on this device.',
-    ),
+    h('h1', { class: 'landing-logo' }, logo()),
     h(
       'div',
       {

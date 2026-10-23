@@ -146,7 +146,12 @@ p {
   text-transform: uppercase;
   text-decoration: none;
 }
+/* The start page shows the logo, so the header doesn't repeat the name there. */
+body:has(.landing) .wordmark {
+  display: none;
+}
 .header-meta {
+  margin-left: auto;
   display: flex;
   gap: 16px;
   font-size: 12px;
@@ -164,14 +169,17 @@ p {
   margin: 0 auto;
   padding: 96px 20px 48px;
 }
-.landing h1 {
-  font-size: 28px;
-  font-weight: 500;
-  letter-spacing: -0.02em;
+.landing-logo {
+  margin: 0 0 32px;
+  line-height: 0;
+  text-align: center;
 }
-.landing-lead {
-  margin: 8px 0 24px;
-  color: var(--muted);
+.landing-logo .logo {
+  height: 64px;
+  width: auto;
+}
+.logo-bolt {
+  fill: var(--bg);
 }
 .dropzone {
   padding: 96px 24px;

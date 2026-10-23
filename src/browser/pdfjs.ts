@@ -53,11 +53,12 @@ const MAX_CANVAS_SIDE = 6000;
 /**
  * Renders a page onto a new canvas on a white background. `scale` is in
  * pixels per point (1 = 72 DPI) and is reduced if the canvas would be huge.
+ * `rotation` turns the page clockwise beyond its own rotation.
  */
-export async function renderPage(page: PDFPageProxy, scale: number): Promise<HTMLCanvasElement> {
+export async function renderPage(page: PDFPageProxy, scale: number, rotation = 0): Promise<HTMLCanvasElement> {
   const base = page.getViewport({ scale: 1 });
   const safeScale = Math.min(scale, MAX_CANVAS_SIDE / Math.max(base.width, base.height));
-  const viewport = page.getViewport({ scale: safeScale });
+  const viewport = page.getViewport({ scale: safeScale, rotation: page.rotate + rotation });
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.floor(viewport.width));
   canvas.height = Math.max(1, Math.floor(viewport.height));

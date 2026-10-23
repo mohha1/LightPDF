@@ -25,10 +25,11 @@ The single-file `LightPDF.html` in the download package passes the same check wh
 | What | Where | How long |
 | --- | --- | --- |
 | Your files and their thumbnails | The tab's memory | Until you close the tab or choose **Start over** |
+| What you add in the page editor (text, drawings, images, a drawn signature) | The tab's memory | Until you close the tab |
 | Download settings (format, compression, page number and watermark options, **including the watermark text**) and thumbnail zoom | `localStorage` for the site | Until you clear the site's data |
 | The app's own files (HTML, JavaScript, CSS, icons) | Cache Storage, via the service worker | Replaced on each update |
 
-The **Delete originals** setting is never stored. Your files are never written to `localStorage`, IndexedDB or the service worker cache. To remove everything LightPDF has stored, clear the site's data in your browser settings.
+The **Delete originals** setting and signatures are never stored. Your files are never written to `localStorage`, IndexedDB or the service worker cache. To remove everything LightPDF has stored, clear the site's data in your browser settings.
 
 ### Access to files on your computer
 
@@ -56,7 +57,8 @@ PDF files can be crafted to attack the software that opens them. LightPDF reduce
 ### What LightPDF does not do
 
 - **It doesn't sanitise PDFs.** When a document is one PDF with its pages in their original order, LightPDF edits that PDF in place, so everything in it is kept: metadata, bookmarks, links, form fields, and any attachments or scripts it contains. If you need to strip hidden content before sharing a file, use **Recommended** or **Extreme** compression, or export to JPG or PNG. These redraw every page as an image in a new file, which keeps only how the pages look.
-- **It doesn't encrypt, sign or password-protect files**, and it can't open password-protected PDFs.
+- **It doesn't encrypt, digitally sign or password-protect files**, and it can't open password-protected PDFs. A signature drawn in the page editor is a picture on the page, not a cryptographic signature.
+- **Whiteout doesn't redact.** The page editor's whiteout covers content with a box; the text underneath stays in the file and can be copied or searched.
 - **It can't protect you from a compromised device or browser.** Malicious browser extensions, for example, can read any page you visit.
 
 Output PDFs are tagged with `LightPDF` as the creator and producer, and with the time they were made. LightPDF adds no other information about you or your device.
@@ -78,7 +80,7 @@ Referrer-Policy: no-referrer
 Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
 ```
 
-- The Content Security Policy only lets the page load code from its own site, and `frame-ancestors 'none'` stops other sites from embedding it. [`e2e/privacy.mjs`](e2e/privacy.mjs) tests it against the production build, sent with every file, adding PDFs and images and exporting in every format. `'unsafe-inline'` in `style-src` is needed because the editor sets some styles at runtime. `'wasm-unsafe-eval'` lets PDF.js run its WebAssembly image decoders (JPEG 2000, and JBIG2 and CCITT fax in black-and-white scans); without it those images come out blank. It allows WebAssembly only, not JavaScript `eval`, which stays blocked.
+- The Content Security Policy only lets the page load code from its own site, and `frame-ancestors 'none'` stops other sites from embedding it. [`e2e/privacy.mjs`](e2e/privacy.mjs) tests it against the production build, sent with every file, adding PDFs and images, editing a page in the page editor and exporting in every format. `'unsafe-inline'` in `style-src` is needed because the editor sets some styles at runtime. `'wasm-unsafe-eval'` lets PDF.js run its WebAssembly image decoders (JPEG 2000, and JBIG2 and CCITT fax in black-and-white scans); without it those images come out blank. It allows WebAssembly only, not JavaScript `eval`, which stays blocked.
 - If you serve LightPDF from a subfolder of a site that hosts other apps, give it its own origin (for example a subdomain) instead, so that its storage and permissions are kept apart.
 - GitHub Pages can't set custom headers. It serves over HTTPS, which is the most important part.
 

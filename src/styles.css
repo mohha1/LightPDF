@@ -1041,6 +1041,220 @@ input[type='checkbox']:disabled {
   background: var(--fg);
 }
 
+/* ------------------------------------------------------------ page editor */
+
+/* A page opened for editing covers the app; the file cards wait underneath. */
+.page-editor-open {
+  overflow: hidden;
+}
+.page-editor {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  outline: none;
+}
+.pe-bar,
+.pe-tools,
+.pe-props {
+  flex: none;
+  display: flex;
+  align-items: center;
+  min-height: var(--toolbar-height);
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.pe-bar {
+  min-height: var(--header-height);
+}
+.pe-tools {
+  gap: 2px;
+}
+.pe-props {
+  min-height: 48px;
+}
+.pe-props .tool-group {
+  gap: 10px;
+}
+.pe-title {
+  padding: 0 7px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pe-name {
+  color: var(--muted);
+}
+.tool[aria-pressed='true'] {
+  background: var(--fg);
+  color: var(--bg);
+  text-decoration-line: none;
+}
+.pe-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.pe-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.pe-select {
+  width: auto;
+  height: 28px;
+  font-size: 12px;
+}
+.pe-hint {
+  padding-left: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.pe-swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--edge);
+  border-radius: 0;
+  background: var(--swatch);
+  cursor: pointer;
+}
+.pe-swatch[aria-pressed='true'] {
+  border-color: var(--bg);
+  box-shadow: 0 0 0 1px var(--fg);
+}
+.pe-custom input {
+  width: 32px;
+  height: 22px;
+  padding: 2px;
+}
+
+.pe-stage {
+  flex: 1;
+  display: flex;
+  overflow: auto;
+  padding: 24px;
+  background: var(--hover);
+  overscroll-behavior: contain;
+}
+.pe-sheet {
+  position: relative;
+  flex: none;
+  margin: auto;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--edge);
+  touch-action: none;
+  cursor: crosshair;
+}
+/* With Select, a finger on the page scrolls; marks and handles still drag. */
+.pe-sheet[data-tool='select'] {
+  touch-action: pan-x pan-y pinch-zoom;
+  cursor: default;
+}
+.pe-sheet[data-tool='text'] {
+  cursor: text;
+}
+.pe-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.pe-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.pe-sheet[data-tool='select'] .pe-mark {
+  cursor: move;
+  touch-action: none;
+}
+.pe-outline {
+  fill: none;
+  stroke: var(--fg);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.pe-outline-halo {
+  stroke: #fff;
+  stroke-width: 3;
+}
+.pe-handle {
+  fill: #fff;
+  stroke: var(--fg);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  touch-action: none;
+}
+.pe-handle-nw,
+.pe-handle-se {
+  cursor: nwse-resize;
+}
+.pe-handle-ne,
+.pe-handle-sw {
+  cursor: nesw-resize;
+}
+.pe-handle-from,
+.pe-handle-to {
+  cursor: move;
+}
+/* Typing happens in a text box laid exactly over the text on the page. */
+.pe-text {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  outline: 1px dashed var(--fg);
+  outline-offset: 2px;
+  overflow: hidden;
+  resize: none;
+  white-space: pre;
+  transform-origin: 0 0;
+}
+
+.dialog-wide {
+  width: min(520px, 100%);
+}
+.signature-frame {
+  position: relative;
+  border: 1px solid var(--fg);
+}
+/* The line to sign on; it is not part of the signature. */
+.signature-frame::after {
+  content: '';
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: 40px;
+  border-bottom: 1px solid var(--edge);
+  pointer-events: none;
+}
+.signature-pad {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 180px;
+  touch-action: none;
+  cursor: crosshair;
+}
+.signature-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+}
+
 /* ------------------------------------------------------------ overlays */
 
 .drop-overlay {
@@ -1232,8 +1446,21 @@ input[type='checkbox']:disabled {
 
 @media (max-width: 800px) {
   .site-header,
-  .editor-toolbar {
+  .editor-toolbar,
+  .pe-bar,
+  .pe-tools,
+  .pe-props {
     padding: 0 12px;
+  }
+  /* The page fits the screen; Done must stay in view. */
+  .pe-wide {
+    display: none;
+  }
+  .pe-bar {
+    flex-wrap: wrap;
+  }
+  .pe-stage {
+    padding: 12px;
   }
   .header-note {
     display: none;

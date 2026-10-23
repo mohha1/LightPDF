@@ -1,6 +1,8 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { isPdf, readBytes } from '../browser/files';
-import { openPdf, renderThumbnail } from '../browser/pdfjs';
+import { openPdf, renderPage, renderThumbnail } from '../browser/pdfjs';
+import { POINTS_PER_PIXEL } from '../core/images';
+import type { Size } from '../core/marks';
 
 export interface Source {
   id: string;
@@ -31,6 +33,7 @@ export class SourceRegistry {
   private imageUrls = new Map<string, string>();
   private thumbs = new Map<string, Promise<string>>();
   private ready = new Map<string, string>();
+  private sizes = new Map<string, Promise<Size>>();
   private queue: Array<() => void> = [];
   private active = 0;
 
@@ -49,8 +52,9 @@ export class SourceRegistry {
       source = { id, file, kind: 'pdf', pageCount: pdf.numPages, handle };
     } else {
       const url = URL.createObjectURL(file);
-      await checkImage(url, file.name);
+      const image = await loadImage(url, file.name);
       this.imageUrls.set(id, url);
+      this.sizes.set(`${id}:0`, Promise.resolve({ width: image.naturalWidth * POINTS_PER_PIXEL, height: image.naturalHeight * POINTS_PER_PIXEL }));
       this.ready.set(`${id}:0`, url);
       source = { id, file, kind: 'image', pageCount: 1, handle };
     }
@@ -99,6 +103,56 @@ export class SourceRegistry {
     return pending;
   }
 
+  /**
+   * A page's size in points as viewers show the original file (an image's at
+   * 0.75 points per pixel): the space the page editor's marks live in.
+   */
+  pageSize(id: string, index: number): Promise<Size> {
+    const key = `${id}:${index}`;
+    let size = this.sizes.get(key);
+    if (!size) {
+      size = this.pdfPage(id, index).then((page) => {
+        const { width, height } = page.getViewport({ scale: 1 });
+        return { width, height };
+      });
+      this.sizes.set(key, size);
+      size.catch(() => this.sizes.delete(key));
+    }
+    return size;
+  }
+
+  /** Draws a page for the page editor, turned clockwise by `rotation`, at `scale` pixels per point. */
+  async render(id: string, index: number, scale: number, rotation: number): Promise<HTMLCanvasElement> {
+    const url = this.imageUrls.get(id);
+    if (!url) {
+      const page = await this.pdfPage(id, index);
+      const canvas = await renderPage(page, scale, rotation);
+      page.cleanup();
+      return canvas;
+    }
+    const image = await loadImage(url, this.sources.get(id)?.file.name ?? 'image');
+    const sideways = rotation % 180 !== 0;
+    const width = image.naturalWidth * POINTS_PER_PIXEL * scale;
+    const height = image.naturalHeight * POINTS_PER_PIXEL * scale;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(sideways ? height : width));
+    canvas.height = Math.max(1, Math.round(sideways ? width : height));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Your browser could not create a drawing surface.');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.translate(canvas.width / 2, canvas.height / 2);
+    context.rotate((rotation * Math.PI) / 180);
+    context.drawImage(image, -width / 2, -height / 2, width, height);
+    return canvas;
+  }
+
+  private async pdfPage(id: string, index: number) {
+    const pdf = this.pdfs.get(id);
+    if (!pdf) throw new Error('This file is no longer open.');
+    return pdf.getPage(index + 1);
+  }
+
   /** Closes every file. */
   clear(): void {
     this.pdfs.forEach((pdf) => void pdf.loadingTask.destroy());
@@ -108,6 +162,7 @@ export class SourceRegistry {
     this.imageUrls.clear();
     this.thumbs.clear();
     this.ready.clear();
+    this.sizes.clear();
   }
 
   private async limit<T>(task: () => Promise<T>): Promise<T> {
@@ -122,10 +177,10 @@ export class SourceRegistry {
   }
 }
 
-function checkImage(url: string, name: string): Promise<void> {
+function loadImage(url: string, name: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
-    image.onload = () => resolve();
+    image.onload = () => resolve(image);
     image.onerror = () => reject(new Error(`"${name}" is not an image your browser can open.`));
     image.src = url;
   });

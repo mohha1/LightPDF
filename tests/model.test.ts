@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Mark } from '../src/core/marks';
 import {
   createDoc,
   deletePages,
@@ -13,6 +14,8 @@ import {
   removeDoc,
   renameDoc,
   rotatePages,
+  sameLayout,
+  setPageMarks,
   sortDocsByName,
   splitDoc,
   splitIntoPages,
@@ -149,5 +152,39 @@ describe('document operations', () => {
     const unsorted = [createDoc('page 10', 'X', 1), createDoc('page 9', 'Y', 1)];
     expect(sortDocsByName(unsorted).map((doc) => doc.name)).toEqual(['page 9', 'page 10']);
     expect(sortDocsByName(project)).toBe(project);
+  });
+});
+
+describe('page editor marks', () => {
+  const note: Mark = { type: 'whiteout', id: 'm1', x: 1, y: 2, width: 3, height: 4, color: '#ffffff' };
+
+  it('sets and clears the marks of one page', () => {
+    const project = sample();
+    const key = project[0].pages[1].key;
+    const marked = setPageMarks(project, key, [note]);
+    expect(marked[0].pages[1].marks).toEqual([note]);
+    expect(marked[1]).toBe(project[1]);
+    expect(sameLayout(project, marked)).toBe(false);
+    const cleared = setPageMarks(marked, key, []);
+    expect('marks' in cleared[0].pages[1]).toBe(false);
+  });
+
+  it('returns the same project when nothing changes', () => {
+    const project = sample();
+    const key = project[0].pages[0].key;
+    expect(setPageMarks(project, key, [])).toBe(project);
+    const marks = [note];
+    const marked = setPageMarks(project, key, marks);
+    expect(setPageMarks(marked, key, marks)).toBe(marked);
+  });
+
+  it('keeps marks on duplicated and extracted pages', () => {
+    const project = sample();
+    const key = project[0].pages[0].key;
+    const withMarks = setPageMarks(project, key, [note]);
+    const duplicated = duplicatePages(withMarks, new Set([key]));
+    expect(duplicated[0].pages[1].marks).toEqual(withMarks[0].pages[0].marks);
+    const extracted = extractPages(withMarks, new Set([key]));
+    expect(extracted[1].pages[0].marks).toEqual(withMarks[0].pages[0].marks);
   });
 });

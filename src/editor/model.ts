@@ -4,6 +4,8 @@
  * each operation returns a new project, which makes undo a list of snapshots.
  */
 
+import type { Mark } from '../core/marks';
+
 export interface PageRef {
   /** Unique per page in the editor, including duplicates. */
   key: string;
@@ -13,6 +15,8 @@ export interface PageRef {
   index: number;
   /** Extra clockwise rotation in degrees. */
   rotation: number;
+  /** Text, drawings and images added in the page editor; written into the page at export. */
+  marks?: readonly Mark[];
 }
 
 export interface Doc {
@@ -29,8 +33,13 @@ function nextId(prefix: string): string {
   return `${prefix}${++counter}`;
 }
 
-function newPage(source: string, index: number, rotation = 0): PageRef {
-  return { key: nextId('p'), source, index, rotation };
+function newPage(source: string, index: number, rotation = 0, marks?: readonly Mark[]): PageRef {
+  return marks ? { key: nextId('p'), source, index, rotation, marks } : { key: nextId('p'), source, index, rotation };
+}
+
+/** A new page showing the same as `page`: same file, page, rotation and marks. */
+function copyPage(page: PageRef): PageRef {
+  return newPage(page.source, page.index, page.rotation, page.marks);
 }
 
 export function createDoc(name: string, source: string, pageCount: number): Doc {
@@ -90,7 +99,16 @@ export function deletePages(project: Project, keys: ReadonlySet<string>): Projec
 
 /** Inserts a copy of each page right after it. */
 export function duplicatePages(project: Project, keys: ReadonlySet<string>): Project {
-  return mapPages(project, (page) => (keys.has(page.key) ? [page, newPage(page.source, page.index, page.rotation)] : page));
+  return mapPages(project, (page) => (keys.has(page.key) ? [page, copyPage(page)] : page));
+}
+
+/** Replaces the page editor's marks on one page. */
+export function setPageMarks(project: Project, key: string, marks: readonly Mark[]): Project {
+  return mapPages(project, (page) => {
+    if (page.key !== key || page.marks === marks || (!page.marks && marks.length === 0)) return page;
+    const { marks: _old, ...rest } = page;
+    return marks.length ? { ...rest, marks } : rest;
+  });
 }
 
 /**
@@ -122,7 +140,7 @@ export function extractPages(project: Project, keys: ReadonlySet<string>): Proje
   const doc: Doc = {
     id: nextId('d'),
     name: uniqueName(project, `${project[lastIndex].name}-extract`),
-    pages: pages.map((page) => newPage(page.source, page.index, page.rotation)),
+    pages: pages.map(copyPage),
   };
   return [...project.slice(0, lastIndex + 1), doc, ...project.slice(lastIndex + 1)];
 }
@@ -187,7 +205,7 @@ export function sortDocsByName(project: Project): Project {
   return sameLayout(project, next) ? project : next;
 }
 
-/** True when both projects have the same documents, names, pages and rotations. */
+/** True when both projects have the same documents, names, pages, rotations and marks. */
 export function sameLayout(a: Project, b: Project): boolean {
   return (
     a.length === b.length &&
@@ -197,7 +215,10 @@ export function sameLayout(a: Project, b: Project): boolean {
         doc.id === other.id &&
         doc.name === other.name &&
         doc.pages.length === other.pages.length &&
-        doc.pages.every((page, j) => page.key === other.pages[j].key && page.rotation === other.pages[j].rotation)
+        doc.pages.every(
+          (page, j) =>
+            page.key === other.pages[j].key && page.rotation === other.pages[j].rotation && page.marks === other.pages[j].marks,
+        )
       );
     })
   );

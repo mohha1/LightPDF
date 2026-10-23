@@ -1,7 +1,9 @@
 import { degrees, PDFRef, type PDFDocument, type PDFImage } from 'pdf-lib';
+import { MarkPainter, pageFrame } from './annotate';
 import { normalizeAngle } from './angle';
-import { placeImage, type ImageInput, type ImageLayout } from './images';
-import { createPdf, loadPdf, savePdf } from './pdf';
+import { placeImage, POINTS_PER_PIXEL, type ImageInput, type ImageLayout } from './images';
+import type { Mark } from './marks';
+import { createPdf, loadPdf, ownContents, savePdf } from './pdf';
 import { stampPageNumbers, stampWatermark, type PageNumberOptions, type WatermarkOptions } from './stamp';
 
 export type ComposeSource = { kind: 'pdf'; bytes: Uint8Array } | { kind: 'image'; image: ImageInput };
@@ -12,6 +14,8 @@ export interface ComposePage {
   /** 0-based page in the source; always 0 for images. */
   index: number;
   rotation: number;
+  /** Drawn on the page from the page editor, before the extra rotation. */
+  marks?: readonly Mark[];
 }
 
 export interface ComposeOptions {
@@ -54,7 +58,12 @@ export class Composer {
     const doc = await loadPdf(source.bytes);
     if (doc.getPageCount() !== pages.length) return undefined;
     if (this.options.flatten) flatten(doc);
-    doc.getPages().forEach((page, position) => rotate(page, pages[position].rotation));
+    const painter = new MarkPainter(doc);
+    for (const [position, page] of doc.getPages().entries()) {
+      const { marks, rotation } = pages[position];
+      if (marks) await painter.paint(page, marks, pageFrame(page));
+      rotate(page, rotation);
+    }
     return doc;
   }
 
@@ -62,6 +71,7 @@ export class Composer {
     const doc = await createPdf();
     doc.setTitle(title);
     const images = new Map<string, PDFImage>();
+    const painter = new MarkPainter(doc);
 
     // Copy runs of consecutive pages from the same PDF in one call.
     for (let start = 0; start < pages.length; ) {
@@ -78,6 +88,11 @@ export class Composer {
         const placement = placeImage(image.width, image.height, this.options.imageLayout);
         const page = doc.addPage([placement.pageWidth, placement.pageHeight]);
         page.drawImage(image, { x: placement.x, y: placement.y, width: placement.width, height: placement.height });
+        if (first.marks) {
+          // The editor showed the image itself, at 0.75 points per pixel.
+          const height = image.height * POINTS_PER_PIXEL;
+          await painter.paint(page, first.marks, { box: placement, rotation: 0, height, scale: placement.height / height });
+        }
         rotate(page, first.rotation);
         start++;
         continue;
@@ -87,10 +102,13 @@ export class Composer {
       while (end < pages.length && pages[end].source === first.source) end++;
       const run = pages.slice(start, end);
       const copied = await doc.copyPages(await this.load(first.source, source.bytes), run.map((page) => page.index));
-      copied.forEach((page, i) => {
+      for (const [i, page] of copied.entries()) {
         doc.addPage(page);
-        rotate(page, run[i].rotation);
-      });
+        ownContents(page);
+        const { marks, rotation } = run[i];
+        if (marks) await painter.paint(page, marks, pageFrame(page));
+        rotate(page, rotation);
+      }
       start = end;
     }
     return doc;

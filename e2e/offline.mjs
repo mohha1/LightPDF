@@ -1,0 +1,17 @@
+import { BASE, chromium, FIXTURES } from './env.mjs';
+const browser = await chromium.launch();
+const context = await browser.newContext({ acceptDownloads: true });
+const page = await context.newPage();
+await page.goto(BASE);
+await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
+await page.reload();
+await context.setOffline(true);
+await page.reload();
+await page.waitForSelector('.dropzone', { timeout: 10000 });
+await page.setInputFiles('input[type=file]', [`${FIXTURES}alpha.pdf`, `${FIXTURES}bravo.pdf`]);
+await page.waitForFunction(() => document.querySelectorAll('.page img[src]').length === 8, null, { timeout: 15000 });
+await page.click('.tool >> text=Merge all');
+await page.click('label.checkbox:has-text("Page numbers")');
+const [download] = await Promise.all([page.waitForEvent('download'), page.click('.btn-action')]);
+console.log('OFFLINE EDIT + EXPORT OK', download.suggestedFilename());
+await browser.close();

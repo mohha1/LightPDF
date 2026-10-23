@@ -1,9 +1,13 @@
+import { canDeleteFiles } from '../browser/filesystem';
 import type { ImageLayout, Orientation, PageSize } from '../core/images';
 import type { PageNumberOptions, Position, WatermarkOptions } from '../core/stamp';
 import type { Field, Values } from '../ui/fields';
 
 /** Values that describe the project rather than a setting, kept beside the settings for `showIf`. */
 export const HAS_IMAGES = '_hasImages';
+
+/** Not remembered between visits, so files are never deleted by a setting someone forgot about. */
+export const DELETE_ORIGINALS = 'deleteOriginals';
 
 const isPdf = (values: Values) => values.format === 'pdf';
 const makesPages = (values: Values) => values.format !== 'txt';
@@ -68,6 +72,18 @@ export const EXPORT_FIELDS: Field[] = [
       { value: 'small', label: 'Small' },
       { value: 'big', label: 'Big' },
     ],
+  },
+
+  { type: 'section', key: 'afterSection', label: 'After saving' },
+  {
+    type: 'checkbox',
+    key: DELETE_ORIGINALS,
+    label: 'Delete originals',
+    default: false,
+    disabled: !canDeleteFiles,
+    help: canDeleteFiles
+      ? 'Removes the files you added from your computer once the result is saved, so only the new file is left.'
+      : 'Needs Chrome or Edge on a computer.',
   },
 
   { type: 'section', key: 'stampSection', label: 'Add to every page', showIf: makesPages },

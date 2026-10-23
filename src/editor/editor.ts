@@ -1,16 +1,30 @@
-import { baseName, download, isImage, isPdf, zipOutputs } from '../browser/files';
-import { progressDialog } from '../ui/dialog';
+import { baseName, download, formatBytes, isImage, isPdf, zipOutputs } from '../browser/files';
+import {
+  canDeleteFiles,
+  canPickFiles,
+  canSaveAs,
+  chooseDestination,
+  deleteFiles,
+  filesFromDrop,
+  pickFiles,
+  writeOutputs,
+  type DeleteResult,
+  type Destination,
+  type PickedFile,
+} from '../browser/filesystem';
+import { progressDialog, type DialogAction, type DialogState, type ProgressDialog } from '../ui/dialog';
 import { h, replaceChildren, type Child } from '../ui/dom';
 import type { Values } from '../ui/fields';
 import { icon, type IconName } from '../ui/icons';
 import { defaultValues, renderOptions, type OptionsPanel } from '../ui/options';
 import { toast } from '../ui/toast';
 import { enablePageDrag } from './drag';
-import { exportDocs, safeFileName } from './export';
+import { exportDocs } from './export';
 import { History } from './history';
 import { renderLanding } from './landing';
 import * as model from './model';
-import { EXPORT_FIELDS, HAS_IMAGES, toExportSettings } from './settings';
+import { outputNames, safeFileName } from './naming';
+import { DELETE_ORIGINALS, EXPORT_FIELDS, HAS_IMAGES, toExportSettings } from './settings';
 import { SourceRegistry } from './sources';
 
 const SETTINGS_KEY = 'lightpdf:export-settings';
@@ -20,6 +34,23 @@ const ZOOM = { min: 100, max: 260, default: 150 };
 class Cancelled extends Error {}
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
+
+/** "a.pdf", "a.pdf and b.pdf", "a.pdf, b.pdf and 3 more". */
+function listNames(names: string[]): string {
+  if (names.length <= 2) return names.join(' and ');
+  if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]}`;
+  return `${names[0]}, ${names[1]} and ${names.length - 2} more`;
+}
+
+/** Originals to delete after saving, and the deletion that's still waiting for the user. */
+interface Cleanup {
+  handles: FileSystemFileHandle[];
+  /** Originals that were added without access to the file on disk. */
+  missing: string[];
+  written: FileSystemFileHandle[];
+  /** Delete right away (the save is confirmed) instead of waiting for a click. */
+  now: boolean;
+}
 
 function readStorage(key: string): unknown {
   try {
@@ -44,7 +75,7 @@ function initialValues(): Values {
   const stored = readStorage(SETTINGS_KEY);
   if (stored && typeof stored === 'object') {
     for (const [key, value] of Object.entries(stored)) {
-      if (key in values && typeof value === typeof values[key]) values[key] = value as Values[string];
+      if (key in values && key !== DELETE_ORIGINALS && typeof value === typeof values[key]) values[key] = value as Values[string];
     }
   }
   return values;
@@ -79,7 +110,7 @@ export function mountEditor(root: HTMLElement): void {
     onchange: () => {
       const files = [...(fileInput.files ?? [])];
       fileInput.value = '';
-      void addFiles(files);
+      void addFiles(files.map((file) => ({ file })));
     },
   });
   const status = h('div', { class: 'status', role: 'status', hidden: true });
@@ -112,7 +143,7 @@ export function mountEditor(root: HTMLElement): void {
     event.preventDefault();
     dragDepth = 0;
     overlay.hidden = true;
-    if (!busy) void addFiles([...(event.dataTransfer?.files ?? [])]);
+    if (!busy && event.dataTransfer) void filesFromDrop(event.dataTransfer).then(addFiles);
   });
 
   window.addEventListener('beforeunload', (event) => {
@@ -123,21 +154,30 @@ export function mountEditor(root: HTMLElement): void {
 
   // ------------------------------------------------------------------ files
 
-  async function addFiles(files: File[]) {
-    const usable = files.filter((file) => isPdf(file) || isImage(file));
-    const skipped = files.length - usable.length;
+  /** Opens the system picker, which also gives access to the files on disk where supported. */
+  function chooseFiles() {
+    if (!canPickFiles) {
+      fileInput.click();
+      return;
+    }
+    pickFiles().then(addFiles, () => fileInput.click());
+  }
+
+  async function addFiles(picked: PickedFile[]) {
+    const usable = picked.filter(({ file }) => isPdf(file) || isImage(file));
+    const skipped = picked.length - usable.length;
     if (skipped > 0) toast(`${plural(skipped, 'file')} skipped. LightPDF works with PDFs and images.`);
     if (usable.length === 0) return;
 
     opening += usable.length;
     updateStatus();
-    const results = await Promise.allSettled(usable.map((file) => registry.add(file)));
+    const results = await Promise.allSettled(usable.map(({ file, handle }) => registry.add(file, handle)));
     opening -= usable.length;
     updateStatus();
 
     const failures = results.flatMap((result, i) =>
       result.status === 'rejected'
-        ? [`${usable[i].name}: ${result.reason instanceof Error ? result.reason.message : 'could not be opened.'}`]
+        ? [`${usable[i].file.name}: ${result.reason instanceof Error ? result.reason.message : 'could not be opened.'}`]
         : [],
     );
     if (failures.length === 1) toast(failures[0]);
@@ -208,13 +248,15 @@ export function mountEditor(root: HTMLElement): void {
   let options: OptionsPanel | undefined;
   let summary: HTMLElement | undefined;
   let downloadButton: HTMLButtonElement | undefined;
+  let saveButton: HTMLButtonElement | undefined;
+  let warning: HTMLElement | undefined;
   let observer: IntersectionObserver | undefined;
 
   function render() {
     if (project().length === 0) {
       observer?.disconnect();
       toolbar = canvas = undefined;
-      replaceChildren(screen, renderLanding(() => fileInput.click()));
+      replaceChildren(screen, renderLanding(chooseFiles));
       return;
     }
     if (!canvas) buildWorkspace();
@@ -266,7 +308,7 @@ export function mountEditor(root: HTMLElement): void {
 
     replaceChildren(
       toolbar,
-      group(toolButton('Add files', () => fileInput.click(), { primary: true })),
+      group(toolButton('Add files', chooseFiles, { primary: true })),
       group(
         toolButton('Undo', undo, { disabled: !history.canUndo, title: 'Undo (Ctrl+Z)' }),
         toolButton('Redo', redo, { disabled: !history.canRedo, title: 'Redo (Ctrl+Shift+Z)' }),
@@ -553,7 +595,7 @@ export function mountEditor(root: HTMLElement): void {
       case 'doc-down':
         return commit(model.moveDoc(docs, doc.id, 1));
       case 'doc-download':
-        return void runExport([doc]);
+        return void runExport([doc], 'download');
       case 'doc-delete':
         commit(model.removeDoc(docs, doc.id));
         return toast(`Removed ${doc.name}.`, { label: 'Undo', run: undo });
@@ -596,17 +638,22 @@ export function mountEditor(root: HTMLElement): void {
   function buildExportPanel(): HTMLElement {
     values[HAS_IMAGES] = hasImages();
     options = renderOptions(EXPORT_FIELDS, values, () => {
-      writeStorage(SETTINGS_KEY, Object.fromEntries(Object.entries(values).filter(([key]) => key !== HAS_IMAGES)));
+      const remembered = Object.entries(values).filter(([key]) => key !== HAS_IMAGES && key !== DELETE_ORIGINALS);
+      writeStorage(SETTINGS_KEY, Object.fromEntries(remembered));
       updateExportPanel();
     });
     summary = h('p', { class: 'export-summary' });
-    downloadButton = h('button', { type: 'button', class: 'btn btn-primary btn-action', onclick: () => void runExport(project()) });
+    warning = h('p', { class: 'export-warning', hidden: true });
+    downloadButton = h('button', { type: 'button', class: 'btn btn-primary btn-action', onclick: () => void runExport(project(), 'download') });
+    saveButton = canSaveAs
+      ? h('button', { type: 'button', class: 'btn btn-light btn-save', onclick: () => void runExport(project(), 'save') }, 'Save as…')
+      : undefined;
     return h(
       'aside',
       { class: 'sidebar', 'aria-label': 'Download options' },
       h('h2', { class: 'sidebar-title' }, 'Download'),
       h('div', { class: 'sidebar-body' }, options.element),
-      h('div', { class: 'sidebar-footer' }, summary, downloadButton),
+      h('div', { class: 'sidebar-footer' }, summary, warning, h('div', { class: 'export-buttons' }, downloadButton, saveButton)),
     );
   }
 
@@ -625,32 +672,139 @@ export function mountEditor(root: HTMLElement): void {
         : format === 'txt'
           ? docs === 1 ? 'Download text' : `Download ${docs} text files`
           : pages === 1 ? 'Download image' : `Download ${pages} images`;
-    summary.textContent = `${plural(docs, 'file')} · ${plural(pages, 'page')}${outputs > 1 ? ' · saved as a ZIP' : ''}`;
+    summary.textContent = `${plural(docs, 'file')} · ${plural(pages, 'page')}${outputs > 1 ? ' · downloads as a ZIP' : ''}`;
     downloadButton.textContent = label;
+    if (saveButton) saveButton.title = outputs > 1 ? 'Choose a folder to save the files in' : 'Choose where to save the file';
+    if (warning) {
+      warning.hidden = !values[DELETE_ORIGINALS];
+      warning.textContent = 'The files you added will be deleted from your computer after saving.';
+    }
   }
 
-  async function runExport(docs: readonly model.Doc[]) {
+  /** The disk files behind the documents being exported. */
+  function originalsOf(docs: readonly model.Doc[]): Pick<Cleanup, 'handles' | 'missing'> {
+    const handles: FileSystemFileHandle[] = [];
+    const missing: string[] = [];
+    for (const id of new Set(docs.flatMap((doc) => doc.pages.map((page) => page.source)))) {
+      const source = registry.get(id);
+      if (source?.handle) handles.push(source.handle);
+      else if (source) missing.push(source.file.name);
+    }
+    return { handles, missing };
+  }
+
+  function describeDeletion(result: DeleteResult, askedForPermission: boolean, pending: FileSystemFileHandle[]): string[] {
+    const lines: string[] = [];
+    if (result.deleted.length) lines.push(`Deleted ${listNames(result.deleted)} from your computer.`);
+    for (const { name, reason } of result.kept) lines.push(`Kept ${name}: ${reason}.`);
+    if (askedForPermission && pending.length) lines.push(`Kept ${listNames(pending.map((handle) => handle.name))}: permission wasn’t given.`);
+    return lines;
+  }
+
+  /** Shows the result screen, deleting originals now or offering a button to do it. */
+  async function showResult(dialog: ProgressDialog, view: DialogState, cleanup?: Cleanup) {
+    if (!cleanup) return dialog.show(view);
+    const lines = [...(view.lines ?? [])];
+    let pending = cleanup.handles;
+    if (cleanup.now && pending.length) {
+      const result = await deleteFiles(pending, cleanup.written, false);
+      lines.push(...describeDeletion(result, false, []));
+      pending = result.needPermission;
+    }
+    if (cleanup.missing.length) {
+      lines.push(`Can’t delete ${listNames(cleanup.missing)}: added without access to the file on disk.`);
+    }
+    if (pending.length === 0) return dialog.show({ ...view, lines });
+
+    const names = listNames(pending.map((handle) => handle.name));
+    const deleteAction: DialogAction = {
+      label: `Delete ${plural(pending.length, 'original')}`,
+      primary: true,
+      run: async () => {
+        const result = await deleteFiles(pending, cleanup.written, true);
+        dialog.show({ ...view, lines: [...lines, ...describeDeletion(result, true, result.needPermission)] });
+      },
+    };
+    dialog.show({
+      ...view,
+      lines: [
+        ...lines,
+        cleanup.now
+          ? `To delete ${names}, allow LightPDF to change them.`
+          : `When the download has finished, delete ${names} from your computer?`,
+      ],
+      actions: [...view.actions.map((action) => ({ ...action, primary: false })), deleteAction],
+    });
+  }
+
+  async function runExport(docs: readonly model.Doc[], delivery: 'download' | 'save') {
     if (busy || docs.length === 0) return;
+    const settings = toExportSettings(values);
+
+    // The save dialog has to open straight from the click, before any slow work.
+    let destination: Destination | null = null;
+    if (delivery === 'save') {
+      try {
+        destination = await chooseDestination(docs.flatMap((doc) => outputNames(doc, settings.format)));
+      } catch {
+        toast('Your browser couldn’t open the save dialog. Use Download instead.');
+        return;
+      }
+      if (!destination) return;
+    }
+
     busy = true;
     let cancelled = false;
-    const dialog = progressDialog(() => {
+    const dialog = progressDialog(delivery === 'save' ? 'Saving' : 'Preparing your download', () => {
       cancelled = true;
       dialog.close();
     });
+    const back: DialogAction = { label: 'Back to editor', run: dialog.close, primary: true };
+    const originals = values[DELETE_ORIGINALS] && canDeleteFiles ? originalsOf(docs) : undefined;
+
     try {
-      const result = await exportDocs(docs, registry, toExportSettings(values), (fraction, label) => {
+      const result = await exportDocs(docs, registry, settings, (fraction, label) => {
         if (cancelled) throw new Cancelled();
         dialog.update(fraction, label);
       });
       if (cancelled) return;
-      const zipName = `${docs.length === 1 ? safeFileName(docs[0].name) : 'lightpdf'}.zip`;
-      const file = result.files.length === 1 ? result.files[0] : await zipOutputs(result.files, zipName);
-      download(file);
-      dialog.done(file, result.summary, () => download(file));
+
+      if (destination) {
+        dialog.update(1, 'Writing files');
+        const written = await writeOutputs(destination, result.files);
+        const where =
+          destination.kind === 'folder'
+            ? `${plural(written.length, 'file')} saved in the folder ${destination.handle.name}.`
+            : `Saved as ${written[0].name}.`;
+        await showResult(
+          dialog,
+          { title: 'Saved', tone: 'done', lines: [where, result.summary], actions: [back] },
+          originals && { ...originals, written, now: true },
+        );
+      } else {
+        const zipName = `${docs.length === 1 ? safeFileName(docs[0].name) : 'lightpdf'}.zip`;
+        const file = result.files.length === 1 ? result.files[0] : await zipOutputs(result.files, zipName);
+        download(file);
+        await showResult(
+          dialog,
+          {
+            title: 'Your download has started',
+            tone: 'done',
+            lines: [`${file.name} · ${formatBytes(file.blob.size)}`, result.summary],
+            actions: [{ label: 'Download again', run: () => download(file) }, back],
+          },
+          originals && { ...originals, written: [], now: false },
+        );
+      }
     } catch (error) {
       if (!(error instanceof Cancelled) && !cancelled) {
         console.error(error);
-        dialog.fail(error instanceof Error ? error.message : 'Something went wrong. Please try again.');
+        dialog.show({
+          title: 'That didn’t work',
+          tone: 'error',
+          lines: [error instanceof Error ? error.message : 'Something went wrong. Please try again.'],
+          actions: [back],
+        });
       }
     } finally {
       busy = false;

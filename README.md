@@ -8,7 +8,7 @@ LightPDF is a static web app: there is no server-side processing, no account and
 
 1. **Add files.** Drop or select PDFs and images, one or many. Each file becomes a document in the editor.
 2. **Arrange and edit.** Every page is shown as a thumbnail. Each document card is one file you'll download, so what you see is what you get.
-3. **Download.** Pick the format and extras in the Download panel, then download everything (as a ZIP when there's more than one file) or a single document from its card.
+3. **Download or save.** Pick the format and extras in the Download panel. **Download** puts everything in your downloads folder (as a ZIP when there's more than one file); **Save as…** lets you choose the file name, or a folder for several files. A single document can also be downloaded from its card.
 
 ### In the editor
 
@@ -31,9 +31,12 @@ LightPDF is a static web app: there is no server-side processing, no account and
 - **Compression**: *None* keeps text and quality exactly as they are. *Recommended* and *Extreme* redraw each page as an image, which shrinks scans and photo-heavy files a lot but makes text no longer selectable. LightPDF never hands back a bigger file than compression started with.
 - **Page numbers** and a **watermark** can be added to every page.
 - **Flatten form fields** locks filled-in answers into the page.
+- **Delete originals** removes the files you added from your computer once the result is saved, so only the new file is left. After **Save as…** this happens as soon as the file is written. After **Download**, the browser can't tell when the download has finished, so LightPDF asks you to confirm with a **Delete originals** button instead. A saved file that replaces one of the originals is never deleted. This setting is never remembered between visits.
 - **Page size for images** (same as the image, A4 or Letter) appears when your documents contain images.
 
 Download settings are remembered in your browser.
+
+**Save as…** and **Delete originals** need the File System Access API, which Chrome, Edge and other Chromium browsers support on desktop. Elsewhere **Save as…** is hidden and **Delete originals** is greyed out; Download works everywhere. Files you add are copied into memory, so the editor keeps working after the originals are deleted.
 
 ### Good to know
 

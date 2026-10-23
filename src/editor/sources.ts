@@ -4,9 +4,12 @@ import { openPdf, renderThumbnail } from '../browser/pdfjs';
 
 export interface Source {
   id: string;
+  /** An in-memory copy, so the editor keeps working if the file on disk changes or is deleted. */
   file: File;
   kind: 'pdf' | 'image';
   pageCount: number;
+  /** The file on disk, when the browser gave access to it. */
+  handle?: FileSystemFileHandle;
 }
 
 /** Thumbnails are rendered once at this size and scaled with CSS for zooming. */
@@ -30,19 +33,24 @@ export class SourceRegistry {
   private active = 0;
 
   /** Opens a file. Throws a readable error for damaged or protected PDFs. */
-  async add(file: File): Promise<Source> {
+  async add(original: File, handle?: FileSystemFileHandle): Promise<Source> {
     const id = `s${++counter}`;
+    const bytes = await readBytes(original);
+    const file = new File([bytes as Uint8Array<ArrayBuffer>], original.name, {
+      type: original.type,
+      lastModified: original.lastModified,
+    });
     let source: Source;
     if (isPdf(file)) {
-      const pdf = await openPdf(await readBytes(file));
+      const pdf = await openPdf(bytes);
       this.pdfs.set(id, pdf);
-      source = { id, file, kind: 'pdf', pageCount: pdf.numPages };
+      source = { id, file, kind: 'pdf', pageCount: pdf.numPages, handle };
     } else {
       const url = URL.createObjectURL(file);
       await checkImage(url, file.name);
       this.imageUrls.set(id, url);
       this.ready.set(`${id}:0`, url);
-      source = { id, file, kind: 'image', pageCount: 1 };
+      source = { id, file, kind: 'image', pageCount: 1, handle };
     }
     this.sources.set(id, source);
     return source;

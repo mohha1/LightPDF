@@ -23,6 +23,6 @@ export type Field =
   | (FieldBase & { type: 'text'; placeholder?: string; default: string })
   | (FieldBase & { type: 'number'; min?: number; max?: number; step?: number; default: number })
   | (FieldBase & { type: 'range'; min: number; max: number; step: number; unit?: string; default: number })
-  | (FieldBase & { type: 'checkbox'; default: boolean })
+  | (FieldBase & { type: 'checkbox'; default: boolean; disabled?: boolean })
   | (FieldBase & { type: 'color'; default: string })
   | (FieldBase & { type: 'position'; default: string });

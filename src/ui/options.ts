@@ -144,7 +144,8 @@ function renderControl(
         h('input', {
           id,
           type: 'checkbox',
-          checked: Boolean(value),
+          checked: Boolean(value) && !field.disabled,
+          disabled: field.disabled,
           onchange: (event: Event) => set(field.key, (event.target as HTMLInputElement).checked),
         }),
         h('span', {}, field.label ?? ''),

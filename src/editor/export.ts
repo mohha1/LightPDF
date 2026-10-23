@@ -1,6 +1,7 @@
 import { formatBytes, pdfOutput, prepareImage, readBytes, type OutputFile } from '../browser/files';
 import type { ComposeSource } from '../core/compose';
 import type { Doc } from './model';
+import { outputNames } from './naming';
 import type { ExportSettings } from './settings';
 import type { SourceRegistry } from './sources';
 
@@ -11,11 +12,6 @@ export interface ExportResult {
 }
 
 export type ExportProgress = (fraction: number, label: string) => void;
-
-/** Characters that aren't allowed in file names on common systems. */
-export function safeFileName(name: string): string {
-  return name.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-').trim() || 'document';
-}
 
 /** Builds one output (or one set of images) per document. */
 export async function exportDocs(
@@ -54,7 +50,7 @@ export async function exportDocs(
     const label = docs.length > 1 ? `Preparing ${doc.name} (${position + 1} of ${docs.length})` : `Preparing ${doc.name}`;
     const step = (fraction: number) => onProgress((position + fraction) / docs.length, label);
     step(0);
-    const name = safeFileName(doc.name);
+    const names = outputNames(doc, settings.format);
     const pdf = await composer.compose(doc.pages, doc.name);
 
     switch (settings.format) {
@@ -67,21 +63,19 @@ export async function exportDocs(
           before += pdf.length;
           after += best.length;
         }
-        files.push(pdfOutput(`${name}.pdf`, best));
+        files.push(pdfOutput(names[0], best));
         break;
       }
       case 'jpg':
       case 'png': {
         const images = await raster.pdfToImages(pdf, { dpi: settings.dpi, format: settings.format }, step);
-        images.forEach((blob, i) =>
-          files.push({ name: images.length === 1 ? `${name}.${settings.format}` : `${name}-${i + 1}.${settings.format}`, blob }),
-        );
+        images.forEach((blob, i) => files.push({ name: names[i], blob }));
         break;
       }
       case 'txt': {
         const text = await extractText(pdf, step);
         if (!text.trim()) withoutText++;
-        files.push({ name: `${name}.txt`, blob: new Blob([text], { type: 'text/plain;charset=utf-8' }) });
+        files.push({ name: names[0], blob: new Blob([text], { type: 'text/plain;charset=utf-8' }) });
         break;
       }
     }

@@ -4,16 +4,29 @@
   --muted: #737373;
   --faint: #a3a3a3;
   --line: #e8e8e8;
+  --edge: #d4d4d4;
   --bg: #ffffff;
-  --hover: #f7f7f7;
+  --hover: #f5f5f5;
   --header-height: 48px;
   --toolbar-height: 44px;
+  --control-height: 32px;
+  --fast: 120ms ease-out;
+  color-scheme: light;
   font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
   font-size: 13px;
   line-height: 1.45;
   color: var(--fg);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  -webkit-tap-highlight-color: transparent;
+  scrollbar-color: var(--edge) transparent;
+}
+
+::selection {
+  background: var(--fg);
+  color: var(--bg);
 }
 
 *,
@@ -59,13 +72,19 @@ p {
   height: 20px;
   flex: none;
 }
+/* Stroke widths are set so lines land on whole pixels at each size. */
 .icon-xs {
   width: 12px;
   height: 12px;
+  stroke-width: 2;
 }
 .icon-sm {
   width: 16px;
   height: 16px;
+}
+.icon-xl {
+  width: 32px;
+  height: 32px;
 }
 
 :focus-visible {
@@ -80,18 +99,25 @@ p {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  min-height: 36px;
   border: 1px solid var(--fg);
   border-radius: 0;
-  padding: 8px 16px;
+  padding: 0 16px;
   font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
+  transition:
+    background-color var(--fast),
+    color var(--fast),
+    border-color var(--fast);
 }
 .btn-primary {
   background: var(--fg);
   color: var(--bg);
 }
 .btn-primary:hover:not(:disabled) {
-  background: #000;
+  background: #333;
+  border-color: #333;
 }
 .btn-primary:disabled {
   background: var(--faint);
@@ -102,7 +128,8 @@ p {
   background: var(--bg);
 }
 .btn-light:hover {
-  background: var(--hover);
+  background: var(--fg);
+  color: var(--bg);
 }
 
 .icon-button {
@@ -114,13 +141,15 @@ p {
   background: transparent;
   color: var(--fg);
   cursor: pointer;
+  transition:
+    background-color var(--fast),
+    color var(--fast);
 }
 .icon-button:hover:not(:disabled) {
   background: var(--hover);
 }
 .icon-button:disabled {
-  color: var(--faint);
-  opacity: 0.6;
+  color: var(--edge);
   cursor: default;
 }
 
@@ -159,7 +188,11 @@ body:has(.landing) .wordmark {
 }
 .header-meta a {
   color: var(--fg);
+  text-decoration-thickness: 1px;
   text-underline-offset: 3px;
+}
+.header-meta a:hover {
+  text-decoration-thickness: 2px;
 }
 
 /* ------------------------------------------------------------ landing */
@@ -189,9 +222,13 @@ body:has(.landing) .wordmark {
   gap: 14px;
   border: 1px solid var(--fg);
   cursor: pointer;
+  transition: background-color var(--fast);
 }
 .dropzone:hover {
-  background: #fafafa;
+  background: var(--hover);
+}
+.dropzone:focus-visible {
+  outline-offset: 4px;
 }
 .dropzone-hint {
   font-size: 12px;
@@ -217,8 +254,16 @@ body:has(.landing) .wordmark {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding-right: 14px;
+  padding-right: 10px;
   flex: none;
+}
+/* A short hairline between groups of tools. */
+.tool-group + .tool-group::before {
+  content: '';
+  width: 1px;
+  height: 16px;
+  margin-right: 10px;
+  background: var(--line);
 }
 .tool-spacer {
   flex: 1;
@@ -236,10 +281,11 @@ body:has(.landing) .wordmark {
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
+  text-decoration-thickness: 1px;
   text-underline-offset: 4px;
 }
 .tool:hover:not(:disabled) {
-  text-decoration: underline;
+  text-decoration-line: underline;
 }
 .tool:disabled {
   color: var(--faint);
@@ -251,11 +297,12 @@ body:has(.landing) .wordmark {
   padding: 0 12px;
 }
 .tool-primary:hover:not(:disabled) {
-  background: #000;
-  text-decoration: none;
+  background: #333;
+  text-decoration-line: none;
 }
 .selection-info {
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
   color: var(--muted);
   padding: 0 7px;
   white-space: nowrap;
@@ -268,7 +315,6 @@ body:has(.landing) .wordmark {
 }
 .zoom input {
   width: 100px;
-  accent-color: var(--fg);
 }
 
 /* ------------------------------------------------------------ documents */
@@ -315,6 +361,12 @@ body:has(.landing) .wordmark {
   color: transparent;
   flex: none;
 }
+.doc-check .icon,
+.page-check .icon {
+  width: 10px;
+  height: 10px;
+  stroke-width: 3;
+}
 .doc-check {
   cursor: pointer;
 }
@@ -330,7 +382,7 @@ body:has(.landing) .wordmark {
   content: '';
   position: absolute;
   width: 8px;
-  height: 1.5px;
+  height: 2px;
   background: var(--bg);
 }
 .doc-name {
@@ -345,9 +397,10 @@ body:has(.landing) .wordmark {
   font-weight: 500;
   color: var(--fg);
   text-overflow: ellipsis;
+  transition: border-color var(--fast);
 }
 .doc-name:hover {
-  border-bottom-color: var(--line);
+  border-bottom-color: var(--edge);
 }
 .doc-name:focus {
   outline: none;
@@ -355,6 +408,7 @@ body:has(.landing) .wordmark {
 }
 .doc-meta {
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -377,9 +431,18 @@ body:has(.landing) .wordmark {
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
+  transition:
+    background-color var(--fast),
+    border-color var(--fast);
+}
+@media (hover: hover) {
+  .page:hover {
+    border-color: var(--line);
+  }
 }
 .page.is-selected {
   border-color: var(--fg);
+  background: var(--hover);
 }
 .page.is-moving {
   opacity: 0.3;
@@ -400,19 +463,23 @@ body:has(.landing) .wordmark {
   right: -11px;
 }
 
+/* Positioned so max-height resolves against the square (in a grid it didn't,
+   and portrait pages were cut off); the 1px inset keeps the page's edge visible. */
 .page-thumb {
+  position: relative;
   aspect-ratio: 1;
-  display: grid;
-  place-items: center;
   overflow: hidden;
 }
 .thumb-img {
-  max-width: 100%;
-  max-height: 100%;
+  position: absolute;
+  inset: 1px;
+  margin: auto;
+  max-width: calc(100% - 2px);
+  max-height: calc(100% - 2px);
   background: #fff;
-  box-shadow: 0 0 0 1px #dddddd;
+  box-shadow: 0 0 0 1px var(--edge);
   transform: rotate(var(--rotation, 0deg));
-  transition: transform 0.2s;
+  transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
   -webkit-user-drag: none;
 }
 .thumb-img:not([src]) {
@@ -437,6 +504,8 @@ body:has(.landing) .wordmark {
   top: 6px;
   left: 6px;
   opacity: 0;
+  box-shadow: 0 0 0 1px var(--bg);
+  transition: opacity var(--fast);
 }
 .page:hover .page-check,
 .page:focus-visible .page-check,
@@ -454,6 +523,7 @@ body:has(.landing) .wordmark {
   display: flex;
   gap: 4px;
   opacity: 0;
+  transition: opacity var(--fast);
 }
 .page-quick .icon-button,
 .split-gap {
@@ -483,6 +553,11 @@ body:has(.landing) .wordmark {
   text-align: center;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.page.is-selected .page-number {
+  color: var(--fg);
+  font-weight: 700;
 }
 
 .split-gap {
@@ -499,6 +574,10 @@ body:has(.landing) .wordmark {
   color: var(--fg);
   cursor: pointer;
   opacity: 0;
+  transition:
+    opacity var(--fast),
+    background-color var(--fast),
+    color var(--fast);
 }
 .page:hover .split-gap,
 .split-gap:focus-visible {
@@ -567,6 +646,7 @@ body:has(.landing) .wordmark {
   flex: 1;
   overflow-y: auto;
   padding: 0 20px 16px;
+  scrollbar-width: thin;
 }
 .sidebar-footer {
   padding: 16px 20px;
@@ -576,6 +656,7 @@ body:has(.landing) .wordmark {
 .export-summary {
   margin-bottom: 8px;
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
 .export-warning {
@@ -593,20 +674,24 @@ body:has(.landing) .wordmark {
   background: none;
   font-weight: 700;
   text-decoration: underline;
+  text-decoration-thickness: 1px;
   text-underline-offset: 3px;
   cursor: pointer;
+}
+.warning-action:hover {
+  text-decoration-thickness: 2px;
 }
 .export-buttons {
   display: flex;
   gap: 8px;
 }
+.btn-action,
+.btn-save {
+  min-height: 40px;
+  padding: 0 12px;
+}
 .btn-action {
   flex: 1;
-  padding: 10px 12px;
-}
-.btn-save {
-  padding: 10px 12px;
-  white-space: nowrap;
 }
 
 .field {
@@ -635,16 +720,26 @@ body:has(.landing) .wordmark {
 
 .input {
   width: 100%;
-  padding: 6px 8px;
+  height: var(--control-height);
+  padding: 0 8px;
   border: 1px solid var(--fg);
   border-radius: 0;
   background: var(--bg);
   color: var(--fg);
   font: inherit;
 }
+.input::placeholder {
+  color: var(--faint);
+}
 .input:focus {
-  outline: 2px solid var(--fg);
-  outline-offset: -1px;
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--fg);
+}
+select.input {
+  appearance: none;
+  padding-right: 28px;
+  background: var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23111' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") right 8px center / 12px no-repeat;
+  cursor: pointer;
 }
 
 .choices {
@@ -661,13 +756,19 @@ body:has(.landing) .wordmark {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 2px;
+  min-height: calc(var(--control-height) - 2px);
   padding: 6px 8px;
   border: 0;
   border-radius: 0;
   background: var(--bg);
   text-align: center;
   cursor: pointer;
+  transition:
+    background-color var(--fast),
+    color var(--fast),
+    border-color var(--fast);
 }
 .choices:not(.choices-stacked) .choice + .choice {
   border-left: 1px solid var(--fg);
@@ -679,6 +780,9 @@ body:has(.landing) .wordmark {
 }
 .choice:hover {
   background: var(--hover);
+}
+.choices-stacked .choice:hover {
+  border-color: var(--fg);
 }
 .choice[aria-checked='true'] {
   background: var(--fg);
@@ -696,7 +800,7 @@ body:has(.landing) .wordmark {
   color: var(--muted);
 }
 .choice[aria-checked='true'] .choice-description {
-  color: #cccccc;
+  color: #c4c4c4;
 }
 
 .checkbox {
@@ -705,18 +809,63 @@ body:has(.landing) .wordmark {
   gap: 10px;
   cursor: pointer;
 }
-.checkbox input,
-.range input {
-  accent-color: var(--fg);
-}
 .checkbox:has(input:disabled) {
   color: var(--faint);
   cursor: default;
 }
-.checkbox input {
+
+/* Square, monochrome versions of the native checkbox and slider. */
+input[type='checkbox'] {
+  appearance: none;
+  flex: none;
   width: 14px;
   height: 14px;
   margin: 0;
+  border: 1px solid var(--fg);
+  border-radius: 0;
+  background: var(--bg) center / 10px no-repeat;
+  cursor: pointer;
+}
+input[type='checkbox']:checked {
+  background-color: var(--fg);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+}
+input[type='checkbox']:disabled {
+  border-color: var(--edge);
+  background-color: var(--hover);
+  cursor: default;
+}
+
+input[type='range'] {
+  appearance: none;
+  height: 16px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height: 1px;
+  background: var(--fg);
+}
+input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  width: 9px;
+  height: 15px;
+  margin-top: -7px;
+  border: 0;
+  border-radius: 0;
+  background: var(--fg);
+}
+input[type='range']::-moz-range-track {
+  height: 1px;
+  background: var(--fg);
+}
+input[type='range']::-moz-range-thumb {
+  width: 9px;
+  height: 15px;
+  border: 0;
+  border-radius: 0;
+  background: var(--fg);
 }
 
 .range {
@@ -730,16 +879,30 @@ body:has(.landing) .wordmark {
 .range-value {
   min-width: 40px;
   text-align: right;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
 .color input {
+  display: block;
   width: 48px;
-  height: 28px;
-  padding: 2px;
+  height: var(--control-height);
+  padding: 3px;
   border: 1px solid var(--fg);
+  border-radius: 0;
   background: var(--bg);
   cursor: pointer;
+}
+.color input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.color input::-webkit-color-swatch {
+  border: 0;
+  border-radius: 0;
+}
+.color input::-moz-color-swatch {
+  border: 0;
+  border-radius: 0;
 }
 
 .position-picker {
@@ -755,9 +918,15 @@ body:has(.landing) .wordmark {
   width: 14px;
   height: 14px;
   justify-self: center;
+  padding: 0;
   border: 1px solid var(--fg);
+  border-radius: 0;
   background: var(--bg);
   cursor: pointer;
+  transition: background-color var(--fast);
+}
+.position:hover {
+  background: var(--edge);
 }
 .position[class*='position-top'] {
   align-self: start;
@@ -798,14 +967,15 @@ body:has(.landing) .wordmark {
   display: grid;
   place-items: center;
   padding: 16px;
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.85);
+  animation: fade-in 120ms ease-out;
 }
 .dialog {
   width: min(420px, 100%);
   padding: 24px;
   border: 1px solid var(--fg);
   background: var(--bg);
-  box-shadow: 8px 8px 0 rgba(0, 0, 0, 0.08);
+  box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.1);
 }
 .dialog h2 {
   margin-bottom: 16px;
@@ -845,7 +1015,7 @@ body:has(.landing) .wordmark {
 
 .progress {
   width: 100%;
-  height: 4px;
+  height: 2px;
   background: var(--line);
   overflow: hidden;
 }
@@ -870,7 +1040,9 @@ body:has(.landing) .wordmark {
   padding: 10px 14px;
   background: var(--fg);
   color: var(--bg);
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.12);
   transition: opacity 0.4s;
+  animation: rise-in 160ms ease-out;
 }
 .status {
   bottom: 68px;
@@ -886,8 +1058,12 @@ body:has(.landing) .wordmark {
   color: var(--bg);
   font-weight: 700;
   text-decoration: underline;
+  text-decoration-thickness: 1px;
   text-underline-offset: 3px;
   cursor: pointer;
+}
+.toast-action:hover {
+  text-decoration-thickness: 2px;
 }
 
 .spinner {
@@ -898,19 +1074,39 @@ body:has(.landing) .wordmark {
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
+.spinner-sm {
+  width: 12px;
+  height: 12px;
+}
 @keyframes spin {
   to {
     transform: rotate(360deg);
   }
 }
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .thumb-img,
-  .thumb-img:not([src]),
-  .spinner,
-  .progress-bar {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0s !important;
+    transition-duration: 0s !important;
+  }
+  .spinner {
+    animation-duration: 1.6s !important;
+  }
+  .thumb-img:not([src]) {
     animation: none;
-    transition: none;
   }
 }
 

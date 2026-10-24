@@ -105,6 +105,49 @@ describe('redaction', () => {
     expect(pixel(95, 136)).toEqual([0, 0, 0]); // where "0123" was: black
   });
 
+  it('fills a blank box on a scan with paper, not white, and puts nothing back', async () => {
+    // A "scan": the whole page is a picture of yellowed paper with a black bar of ink.
+    const W = 600;
+    const H = 400;
+    const pixmap = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, [0, 0, W, H], false);
+    const pixels = pixmap.getPixels();
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const ink = x > 200 && x < 320 && y > 180 && y < 210;
+        pixels.set(ink ? [20, 20, 20] : [236 - y / 25, 222 - y / 25, 180], y * pixmap.getStride() + x * 3);
+      }
+    }
+    const png = pixmap.asPNG();
+
+    for (const rotation of [0, 90]) {
+      const doc = await PDFDocument.create();
+      const page = doc.addPage([300, 200]);
+      page.drawImage(await doc.embedPng(png), { x: 0, y: 0, width: 300, height: 200 });
+      if (rotation) page.setRotation(degrees(rotation));
+      // Over the ink bar (page x 100–160, y 90–105 top down), as shown.
+      const marks: Mark[] = [rotation ? { type: 'redact', id: 'b', x: 90, y: 90, width: 20, height: 70, blank: true } : { type: 'redact', id: 'b', x: 90, y: 85, width: 80, height: 30, blank: true }];
+      const out = await redact(await doc.save(), [{ source: 'S', index: 0, rotation: 0, marks }]);
+
+      const shown = mupdf.Document.openDocument(out, 'application/pdf').loadPage(0).toPixmap(mupdf.Matrix.identity, mupdf.ColorSpace.DeviceRGB, false, true);
+      const at = (x: number, y: number) => {
+        const i = y * shown.getStride() + x * shown.getNumberOfComponents();
+        return [...shown.getPixels().slice(i, i + 3)];
+      };
+      const [centreX, centreY] = rotation ? [100, 125] : [130, 100];
+      const middle = at(centreX, centreY);
+      const beside = rotation ? at(centreX, 60) : at(60, centreY);
+      // Paper-coloured, close to the paper beside it: not white, not ink.
+      expect(middle[2], `rotation ${rotation}`).toBeLessThan(200);
+      for (let c = 0; c < 3; c++) expect(Math.abs(middle[c] - beside[c]), `rotation ${rotation}`).toBeLessThan(14);
+    }
+  });
+
+  it('adds no paper where the page already shows through', async () => {
+    const out = await redact(await secretPdf(), [{ source: 'S', index: 0, rotation: 0, marks: [{ ...box(0, 120, 300, 80), blank: true } as Mark] }]);
+    expect(await everything(out)).not.toContain('LightPDFPaper');
+    expect(await everything(out)).not.toContain('SECRET');
+  });
+
   it('leaves files without boxes untouched', async () => {
     const bytes = await secretPdf();
     const composed = await new Composer(new Map([['S', { kind: 'pdf', bytes }]]), OPTIONS).compose([{ source: 'S', index: 0, rotation: 0 }], 'x');

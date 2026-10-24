@@ -514,7 +514,7 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
           button('Black box', () => set({ blank: false }), { pressed: !look.blank, title: 'Fill what was removed with black' }),
           button('Leave blank', () => set({ blank: true }), {
             pressed: Boolean(look.blank),
-            title: 'Leave the page showing, as if it was never there (pictures under the box turn white)',
+            title: 'Leave the page showing, as if it was never there; on a scan, the paper around it fills the gap',
           }),
         ),
       );

@@ -1,6 +1,6 @@
 // Blank pages, stamps/ticks/dates, crop, redaction, form filling, properties and Remove hidden data.
 import { createRequire } from 'node:module';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { BASE, chromium, FIXTURES, OUT } from './env.mjs';
 
 const lib = createRequire(new URL('../package.json', import.meta.url))('pdf-lib');
@@ -199,6 +199,30 @@ check('the typed value is in the file', (await everything(bytes)).includes('Type
 check('the new title is set', form.getTitle() === 'Signed-off form');
 check('the author is gone', !form.getAuthor() && !(await everything(bytes)).includes('Fixture Author'));
 await page.click('label.checkbox:has-text("Remove hidden data")');
+
+// An old scan: Leave blank paints paper over the removed name, not a white hole.
+await page.setInputFiles('input[type=file]', FX('old-scan.pdf'));
+await page.waitForFunction(() => document.querySelectorAll('.doc').length === 3 && document.querySelectorAll('.doc')[2].querySelector('img[src]'));
+await openEditor(card(2, 0));
+await page.keyboard.press('x');
+await page.click('.pe-props >> text=Leave blank');
+// "moha" after "Name: " (the scan is 150 dpi: 1 pt is about 2 pixels).
+await drag([149, 224], [212, 260]);
+await done();
+bytes = await exportDoc(2);
+const mupdf = await import(new URL('../node_modules/mupdf/dist/mupdf.js', import.meta.url).href);
+const shown = mupdf.Document.openDocument(bytes, 'application/pdf').loadPage(0).toPixmap(mupdf.Matrix.scale(2, 2), mupdf.ColorSpace.DeviceRGB, false, true);
+writeFileSync(SHOT('old-scan-result'), shown.asPNG());
+const colour = (x, y) => {
+  const i = y * shown.getStride() + x * shown.getNumberOfComponents();
+  return [...shown.getPixels().slice(i, i + 3)];
+};
+let darkest = 255;
+for (let y = 460; y < 510; y += 2) for (let x = 310; x < 410; x += 2) darkest = Math.min(darkest, colour(x, y)[0]);
+const middle = colour(360, 484);
+const paper = colour(360, 560);
+check('the name is gone from the scan', darkest > 140, `darkest ${darkest}`);
+check('and its place looks like the paper, not white', middle[2] < 215 && middle.every((value, c) => Math.abs(value - paper[c]) < 18), `${middle} vs ${paper}`);
 
 check('no errors in the console', errors.length === 0, errors.join(' | '));
 await browser.close();

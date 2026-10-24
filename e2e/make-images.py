@@ -37,6 +37,29 @@ for _ in range(400000):
 scan.save(out / 'scan.pdf', 'PDF', resolution=200, quality=95)
 
 
+# An old typed form, scanned: yellowed, uneven paper with grain and a stain.
+random.seed(2)
+old = Image.new('RGB', (1240, 1754))
+pixels = old.load()
+for y in range(1754):
+    for x in range(1240):
+        shade = (x - 620) ** 2 / 90000 + (y - 877) ** 2 / 160000  # darker towards the edges
+        grain = random.randint(-6, 6)
+        pixels[x, y] = (int(233 - shade * 9 + grain), int(219 - shade * 10 + grain), int(176 - shade * 12 + grain))
+stain = Image.new('L', old.size, 0)
+ImageDraw.Draw(stain).ellipse([700, 300, 1100, 650], fill=60)
+old.paste((190, 165, 110), mask=stain.filter(ImageFilter.GaussianBlur(60)))
+try:
+    from PIL import ImageFont
+    font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf', 44)
+except OSError:
+    font = None
+typed = ImageDraw.Draw(old)
+for line, text in enumerate(['APPLICATION FORM', '', 'Name: moha', 'City: Barcelona', 'Phone: 0123 456 789']):
+    typed.text((160, 300 + line * 90), text, fill=(45, 40, 38), font=font)
+old.filter(ImageFilter.GaussianBlur(0.6)).save(out / 'old-scan.pdf', 'PDF', resolution=150, quality=90)
+
+
 def pdf_with_image(path, data, width, height, params):
     """Writes a one-page PDF that shows one image stream as it is."""
     objects = [

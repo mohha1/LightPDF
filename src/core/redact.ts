@@ -7,6 +7,14 @@ type Box = [number, number, number, number];
 
 const intersects = (a: Box, b: Box) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
 
+/** How much of a character's width and height, on each side, a box may cover without it counting as under the box. */
+const GRAZE = 0.15;
+
+const shrink = ([x0, y0, x1, y1]: Box, share: number): Box => {
+  const [dx, dy] = [(x1 - x0) * share, (y1 - y0) * share];
+  return [x0 + dx, y0 + dy, x1 - dx, y1 - dy];
+};
+
 /**
  * Applies the /Redact annotations that MarkPainter put on the pages, with
  * MuPDF: text, image pixels and drawings under each box are removed from the
@@ -55,7 +63,8 @@ export function applyRedactions(mupdf: MuPDFLibrary, bytes: Uint8Array): Uint8Ar
         const after = render(mupdf, cleared);
         for (const [i, rect] of blankBoxes.entries()) {
           // MuPDF blanks every picture pixel the box touches, a sliver past its edges too: cover all that changed.
-          const box = changed(before.raster, after.raster, before.box(rect));
+          // One pixel more on each side, so no white shows at its edges where it is drawn smoothed.
+          const box = grow(changed(before.raster, after.raster, before.box(rect)), 1, before.raster);
           if (box.width < 1 || box.height < 1) continue;
           const patch = paperPatch(before.raster, box, index * 7919 + i + 1);
           // Where the page already shows its own background (a white or drawn page), leave it.
@@ -70,7 +79,10 @@ export function applyRedactions(mupdf: MuPDFLibrary, bytes: Uint8Array): Uint8Ar
           const xs = [quad[0], quad[2], quad[4], quad[6]];
           const ys = [quad[1], quad[3], quad[5], quad[7]];
           const box: Box = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
-          if (char.trim() && boxes.some((area) => intersects(box, area))) left += char;
+          // MuPDF leaves a character a box only grazes (under about a tenth
+          // of its spacing box, ink rarely there): only count it when the
+          // box reaches further in than that.
+          if (char.trim() && boxes.some((area) => intersects(shrink(box, GRAZE), area))) left += char;
         },
       });
       if (left) throw new Error(`Redaction failed on page ${index + 1}: some text under a box could not be removed, so nothing was saved.`);
@@ -138,6 +150,13 @@ function changed(before: Raster, after: Raster, box: PixelBox): PixelBox {
     }
   }
   return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+}
+
+/** `box` with `by` pixels more on each side, inside the raster. */
+function grow(box: PixelBox, by: number, raster: Raster): PixelBox {
+  const x = Math.max(0, box.x - by);
+  const y = Math.max(0, box.y - by);
+  return { x, y, width: Math.min(raster.width, box.x + box.width + by) - x, height: Math.min(raster.height, box.y + box.height + by) - y };
 }
 
 /** The average difference per channel between an area of a raster and a patch made for it. */

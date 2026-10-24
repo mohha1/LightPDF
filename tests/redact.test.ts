@@ -142,6 +142,20 @@ describe('redaction', () => {
     }
   });
 
+  it('does not fail when a box only grazes a letter beside the ones it covers', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([300, 200]);
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    page.drawText('ABCDEFGH', { x: 20, y: 100, size: 20, font });
+    const from = 20 + font.widthOfTextAtSize('AB', 20);
+    // Over C to F, and half a point into G's spacing box: MuPDF leaves G, and that is right.
+    const width = font.widthOfTextAtSize('CDEF', 20) + 0.5;
+    for (const blank of [false, true]) {
+      const out = await redact(await doc.save(), [{ source: 'S', index: 0, rotation: 0, marks: [{ type: 'redact', id: 'g', x: from, y: 70, width, height: 40, blank }] }]);
+      expect((await visibleText(out)).replace(/\s/g, '')).toBe('ABGH');
+    }
+  });
+
   it('adds no paper where the page already shows through', async () => {
     const out = await redact(await secretPdf(), [{ source: 'S', index: 0, rotation: 0, marks: [{ ...box(0, 120, 300, 80), blank: true } as Mark] }]);
     expect(await everything(out)).not.toContain('LightPDFPaper');

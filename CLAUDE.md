@@ -4,8 +4,7 @@ LightPDF is a static web app for editing PDFs and images entirely in the browser
 
 ## Status
 
-- Work reaches `main` through pull requests: #1 (the app), #2 (README, logo, SECURITY.md), #3 (single-file build, zip package, JPEG 2000 and scan fix), #4 (one folder permission for Delete originals), #5 (logo on the start page), #6 (sharper details, uncut thumbnails), #7 (flowing file cards, file drag, bolt mark in the header), #8 (cards on a grid that fills every row, More menu).
-- #9 is open: the page editor (double-click a page: text, drawings, images, stamps, ticks, dates, crop, form filling, redaction), blank pages, document properties, Remove hidden data, and the fix for page numbers on duplicated pages.
+- Work reaches `main` through pull requests: #1 (the app), #2 (README, logo, SECURITY.md), #3 (single-file build, zip package, JPEG 2000 and scan fix), #4 (one folder permission for Delete originals), #5 (logo on the start page), #6 (sharper details, uncut thumbnails), #7 (flowing file cards, file drag, bolt mark in the header), #8 (cards on a grid that fills every row, More menu), #9 (the page editor: text, drawings, images, stamps, ticks, dates, crop, form filling, redaction with a black box or left blank with paper on scans; blank pages, document properties, Remove hidden data, and the fix for page numbers on duplicated pages).
 - Everything listed below is built and tested. Nothing is half-done.
 - Not yet verified in real Chrome or Edge: the permission prompts for **Delete originals** (per file and for the folder), and **Save as…** with real files. The tests use stand-ins that follow Chrome's rules; see "Testing".
 - Not yet tried: the page editor on a real touch screen (pen and finger drawing) and with a real pinch on a touchpad.

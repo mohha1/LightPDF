@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { Composer, type ComposeOptions, type ComposePage, type ComposeSource } from '../src/core/compose';
-import { FONTS, PageView, type Mark, type TextMark } from '../src/core/marks';
+import { PDFDocument } from 'pdf-lib';
+import { FONTS, PageView, STAMP, type Mark, type TextMark } from '../src/core/marks';
 import { fromBase64, JPEG_BASE64, makePdf, PNG_BASE64 } from './fixtures';
 
 const OPTIONS: ComposeOptions = {
@@ -131,13 +132,37 @@ describe('marks at export', () => {
       { type: 'image', id: 'p', image: { bytes: fromBase64(PNG_BASE64), kind: 'png' }, x: 50, y: 120, width: 30, height: 50, angle: 90 },
       label('Bold', 10, 150, { font: 'serif', bold: true }),
       label('Code', 10, 170, { font: 'mono' }),
+      { type: 'stamp', id: 's', text: 'APPROVED', color: '#d92d20', x: 10, y: 10, width: 80, height: 20, angle: 0 },
+      { type: 'symbol', id: 'k', symbol: 'check', color: '#111111', x: 70, y: 30, width: 12, height: 12 },
+      { type: 'symbol', id: 'c', symbol: 'cross', color: '#111111', x: 70, y: 50, width: 12, height: 12 },
+      { type: 'symbol', id: 'd', symbol: 'dot', color: '#111111', x: 70, y: 70, width: 12, height: 12 },
     ];
     const pages: ComposePage[] = [{ source: 'A', index: 2, rotation: 0, marks }];
     const plain = await new Composer(await sources(), OPTIONS).compose([{ source: 'A', index: 2, rotation: 0 }], 'x');
     const marked = await new Composer(await sources(), OPTIONS).compose(pages, 'x');
     expect(marked.length).toBeGreaterThan(plain.length + 500);
     const [page] = await readPages(marked);
-    expect(page.map((item) => item.text)).toEqual(expect.arrayContaining(['Bold', 'Code']));
+    expect(page.map((item) => item.text)).toEqual(expect.arrayContaining(['Bold', 'Code', 'APPROVED']));
+    // The stamp's text is centred in its frame.
+    const stamp = find(page, 'APPROVED')!;
+    expect(stamp.x).toBeGreaterThan(10);
+    expect(stamp.y).toBeCloseTo(20 + 20 * STAMP.text * 0.36, 0);
+  });
+
+  it('crops to what the editor showed, on plain and turned pages', async () => {
+    const crop: Mark = { type: 'crop', id: 'c', x: 10, y: 20, width: 50, height: 60 };
+    const turnedCrop: Mark = { type: 'crop', id: 'c', x: 0, y: 0, width: 100, height: 50 };
+    const out = await new Composer(await sources(), OPTIONS).compose(
+      [
+        { source: 'A', index: 0, rotation: 0, marks: [crop] },
+        { source: 'A', index: 1, rotation: 0, marks: [turnedCrop] },
+      ],
+      'x',
+    );
+    const doc = await PDFDocument.load(out);
+    expect(doc.getPage(0).getCropBox()).toEqual({ x: 10, y: 120, width: 50, height: 60 });
+    // /Rotate 90: the top-left 100 × 50 as shown is the bottom-left 50 × 100 of the page itself.
+    expect(doc.getPage(1).getCropBox()).toEqual({ x: 0, y: 0, width: 50, height: 100 });
   });
 
   it('explains text the built-in fonts cannot write', async () => {

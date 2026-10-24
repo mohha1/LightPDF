@@ -51,7 +51,12 @@ export async function exportDocs(
     const step = (fraction: number) => onProgress((position + fraction) / docs.length, label);
     step(0);
     const names = outputNames(doc, settings.format);
-    const pdf = await composer.compose(doc.pages, doc.name);
+    let pdf = await composer.compose(doc.pages, doc.name, doc.info);
+    if (doc.pages.some((page) => page.marks?.some((mark) => mark.type === 'redact'))) {
+      onProgress(position / docs.length, `Redacting ${doc.name}`);
+      const [{ loadMupdf }, { applyRedactions }] = await Promise.all([import('../browser/mupdf'), import('../core/redact')]);
+      pdf = applyRedactions(await loadMupdf(), pdf);
+    }
 
     switch (settings.format) {
       case 'pdf': {

@@ -1,8 +1,12 @@
 import {
   arrowWings,
+  cropOf,
   FONTS,
   LINE_HEIGHT,
   markBounds,
+  STAMP,
+  SYMBOLS,
+  symbolStrokes,
   textLines,
   type Mark,
   type MarkImage,
@@ -64,8 +68,15 @@ function linePaths(mark: Extract<Mark, { type: 'line' | 'ink' }>): Point[][] {
   return lines;
 }
 
-/** One mark as SVG, in page coordinates. */
-function markElement(mark: Mark, embed: boolean): SVGElement {
+/** Where a stamp's baseline sits below its middle, as a share of the font size (as in core/annotate.ts). */
+const STAMP_BASELINE = 0.36;
+
+/**
+ * One mark as SVG, in page coordinates. `final` draws it as it will look in
+ * the file (for thumbnails); otherwise as the editor shows it, with a crop
+ * shading the rest of the page and redactions see-through.
+ */
+function markElement(mark: Mark, final: boolean, page: Size): SVGElement {
   switch (mark.type) {
     case 'whiteout':
       return svg('rect', { x: mark.x, y: mark.y, width: mark.width, height: mark.height, fill: mark.color });
@@ -109,12 +120,63 @@ function markElement(mark: Mark, embed: boolean): SVGElement {
     }
     case 'image':
       return svg('image', {
-        href: embed ? imageDataUrl(mark.image) : imageBlobUrl(mark.image),
+        href: final ? imageDataUrl(mark.image) : imageBlobUrl(mark.image),
         width: mark.width,
         height: mark.height,
         preserveAspectRatio: 'none',
         transform: `translate(${mark.x} ${mark.y}) rotate(${mark.angle})`,
       });
+    case 'stamp': {
+      const line = mark.height * STAMP.frame;
+      const size = mark.height * STAMP.text;
+      return svg(
+        'g',
+        { transform: `translate(${mark.x} ${mark.y}) rotate(${mark.angle})`, fill: 'none', stroke: mark.color },
+        svg('rect', { x: line / 2, y: line / 2, width: mark.width - line, height: mark.height - line, 'stroke-width': line }),
+        svg(
+          'text',
+          {
+            x: mark.width / 2,
+            y: mark.height / 2 + size * STAMP_BASELINE,
+            'text-anchor': 'middle',
+            'font-family': FONTS.sans.css,
+            'font-weight': 700,
+            'font-size': size,
+            fill: mark.color,
+            stroke: 'none',
+            style: 'white-space:pre',
+          },
+          mark.text,
+        ),
+      );
+    }
+    case 'symbol': {
+      if (mark.symbol === 'dot') {
+        const radius = (Math.min(mark.width, mark.height) * 0.56) / 2;
+        return svg('circle', { cx: mark.x + mark.width / 2, cy: mark.y + mark.height / 2, r: radius, fill: mark.color });
+      }
+      return svg('path', {
+        d: pathData(symbolStrokes(mark)),
+        fill: 'none',
+        stroke: mark.color,
+        'stroke-width': Math.min(mark.width, mark.height) * SYMBOLS.lineWidth,
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+      });
+    }
+    case 'redact':
+      return svg('rect', { class: final ? undefined : 'pe-redact', x: mark.x, y: mark.y, width: mark.width, height: mark.height, fill: '#000' });
+    case 'crop': {
+      if (final) return svg('g');
+      // Shade everything outside the crop.
+      const outside = `M0 0H${page.width}V${page.height}H0Z M${mark.x} ${mark.y}V${mark.y + mark.height}H${mark.x + mark.width}V${mark.y}Z`;
+      return svg(
+        'g',
+        { class: 'pe-crop' },
+        svg('path', { d: outside, 'fill-rule': 'evenodd', class: 'pe-crop-shade' }),
+        svg('rect', { x: mark.x, y: mark.y, width: mark.width, height: mark.height, class: 'pe-crop-edge' }),
+      );
+    }
   }
 }
 
@@ -124,12 +186,16 @@ function markElement(mark: Mark, embed: boolean): SVGElement {
  * text is being typed in a text box above it.
  */
 export function renderMarks(marks: readonly Mark[], view: PageView, grab: number, hidden?: string): SVGGElement {
-  const groups = marks.map((mark) => {
-    const shape = markElement(mark, false);
+  // The crop goes underneath, so what is drawn inside it can still be picked.
+  const ordered = [...marks.filter((mark) => mark.type === 'crop'), ...marks.filter((mark) => mark.type !== 'crop')];
+  const groups = ordered.map((mark) => {
+    const shape = markElement(mark, false, view.size);
     if (mark.id === hidden) shape.setAttribute('visibility', 'hidden');
     const bounds = markBounds(mark);
     const area =
-      mark.type === 'line' || mark.type === 'ink'
+      mark.type === 'crop'
+        ? svg('rect', { ...bounds, fill: 'none', stroke: 'transparent', 'stroke-width': grab })
+        : mark.type === 'line' || mark.type === 'ink'
         ? svg('path', {
             d: pathData(linePaths(mark)),
             fill: 'none',
@@ -145,15 +211,22 @@ export function renderMarks(marks: readonly Mark[], view: PageView, grab: number
 }
 
 /**
- * A page thumbnail with its marks drawn over it, as an SVG data: URL. The
- * thumbnail keeps its pixel size, so it lays out like the plain one.
+ * A page thumbnail with its marks drawn over it, as an SVG data: URL, cut to
+ * the crop if there is one. Its long side is `pixels` long, so it lays out
+ * like a plain thumbnail.
  */
-export function markedThumbnail(thumbnail: string, thumbSize: Size, page: Size, marks: readonly Mark[]): string {
+export function markedThumbnail(thumbnail: string, page: Size, marks: readonly Mark[], pixels: number): string {
+  const area = cropOf(marks) ?? { x: 0, y: 0, ...page };
+  const shrink = pixels / Math.max(area.width, area.height);
   const root = svg(
     'svg',
-    { width: thumbSize.width, height: thumbSize.height, viewBox: `0 0 ${page.width} ${page.height}` },
+    {
+      width: Math.max(1, Math.round(area.width * shrink)),
+      height: Math.max(1, Math.round(area.height * shrink)),
+      viewBox: `${area.x} ${area.y} ${area.width} ${area.height}`,
+    },
     svg('image', { href: thumbnail, width: page.width, height: page.height, preserveAspectRatio: 'none' }),
-    ...marks.map((mark) => markElement(mark, true)),
+    ...marks.map((mark) => markElement(mark, true, page)),
   );
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(root))}`;
 }

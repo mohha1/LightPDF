@@ -4,7 +4,8 @@
  * each operation returns a new project, which makes undo a list of snapshots.
  */
 
-import type { Mark } from '../core/marks';
+import type { FieldValues, Mark } from '../core/marks';
+import type { DocInfo } from '../core/sanitize';
 
 export interface PageRef {
   /** Unique per page in the editor, including duplicates. */
@@ -17,12 +18,29 @@ export interface PageRef {
   rotation: number;
   /** Text, drawings and images added in the page editor; written into the page at export. */
   marks?: readonly Mark[];
+  /** Values typed into the source PDF's own form fields in the page editor. */
+  fields?: FieldValues;
+}
+
+/** What the page editor changes on a page. */
+export interface PageEdits {
+  marks: readonly Mark[];
+  fields: FieldValues;
+}
+
+const NO_FIELDS: FieldValues = Object.freeze({});
+
+/** A page's edits, with empty ones filled in. */
+export function editsOf(page: PageRef): PageEdits {
+  return { marks: page.marks ?? [], fields: page.fields ?? NO_FIELDS };
 }
 
 export interface Doc {
   id: string;
   name: string;
   pages: PageRef[];
+  /** Properties set in the Properties dialog, written into the file at export. */
+  info?: DocInfo;
 }
 
 /** The documents in display order. Each one becomes one downloaded file. */
@@ -33,13 +51,13 @@ function nextId(prefix: string): string {
   return `${prefix}${++counter}`;
 }
 
-function newPage(source: string, index: number, rotation = 0, marks?: readonly Mark[]): PageRef {
-  return marks ? { key: nextId('p'), source, index, rotation, marks } : { key: nextId('p'), source, index, rotation };
+function newPage(source: string, index: number, rotation = 0): PageRef {
+  return { key: nextId('p'), source, index, rotation };
 }
 
-/** A new page showing the same as `page`: same file, page, rotation and marks. */
+/** A new page showing the same as `page`: same file, page, rotation, marks and form values. */
 function copyPage(page: PageRef): PageRef {
-  return newPage(page.source, page.index, page.rotation, page.marks);
+  return { ...page, key: nextId('p') };
 }
 
 export function createDoc(name: string, source: string, pageCount: number): Doc {
@@ -102,12 +120,32 @@ export function duplicatePages(project: Project, keys: ReadonlySet<string>): Pro
   return mapPages(project, (page) => (keys.has(page.key) ? [page, copyPage(page)] : page));
 }
 
-/** Replaces the page editor's marks on one page. */
-export function setPageMarks(project: Project, key: string, marks: readonly Mark[]): Project {
+/** Replaces the page editor's marks and form values on one page. */
+export function setPageEdits(project: Project, key: string, { marks, fields }: PageEdits): Project {
   return mapPages(project, (page) => {
-    if (page.key !== key || page.marks === marks || (!page.marks && marks.length === 0)) return page;
-    const { marks: _old, ...rest } = page;
-    return marks.length ? { ...rest, marks } : rest;
+    if (page.key !== key) return page;
+    const sameMarks = page.marks === marks || (!page.marks && marks.length === 0);
+    const sameFields = page.fields === fields || (!page.fields && Object.keys(fields).length === 0);
+    if (sameMarks && sameFields) return page;
+    const { marks: _marks, fields: _fields, ...rest } = page;
+    return {
+      ...rest,
+      ...(marks.length ? { marks } : {}),
+      ...(Object.keys(fields).length ? { fields } : {}),
+    };
+  });
+}
+
+/** Inserts `count` pages of `source` after the page `afterKey`, or at the end of the last document. */
+export function insertPages(project: Project, source: string, count: number, afterKey?: string): Project {
+  const pages = Array.from({ length: count }, (_, index) => newPage(source, index));
+  if (project.length === 0 || count === 0) return project;
+  const target = afterKey ? project.findIndex((doc) => doc.pages.some((page) => page.key === afterKey)) : project.length - 1;
+  if (target < 0) return project;
+  return project.map((doc, i) => {
+    if (i !== target) return doc;
+    const at = afterKey ? doc.pages.findIndex((page) => page.key === afterKey) + 1 : doc.pages.length;
+    return { ...doc, pages: [...doc.pages.slice(0, at), ...pages, ...doc.pages.slice(at)] };
   });
 }
 
@@ -185,6 +223,11 @@ export function renameDoc(project: Project, docId: string, name: string): Projec
   return project.map((doc) => (doc.id === docId && trimmed && trimmed !== doc.name ? { ...doc, name: trimmed } : doc));
 }
 
+/** Sets the properties written into a document's file. */
+export function setDocInfo(project: Project, docId: string, info: DocInfo): Project {
+  return project.map((doc) => (doc.id === docId ? { ...doc, info } : doc));
+}
+
 export function removeDoc(project: Project, docId: string): Project {
   return project.filter((doc) => doc.id !== docId);
 }
@@ -205,7 +248,7 @@ export function sortDocsByName(project: Project): Project {
   return sameLayout(project, next) ? project : next;
 }
 
-/** True when both projects have the same documents, names, pages, rotations and marks. */
+/** True when both projects have the same documents, names, pages, rotations, marks and form values. */
 export function sameLayout(a: Project, b: Project): boolean {
   return (
     a.length === b.length &&
@@ -214,10 +257,14 @@ export function sameLayout(a: Project, b: Project): boolean {
       return (
         doc.id === other.id &&
         doc.name === other.name &&
+        doc.info === other.info &&
         doc.pages.length === other.pages.length &&
         doc.pages.every(
           (page, j) =>
-            page.key === other.pages[j].key && page.rotation === other.pages[j].rotation && page.marks === other.pages[j].marks,
+            page.key === other.pages[j].key &&
+            page.rotation === other.pages[j].rotation &&
+            page.marks === other.pages[j].marks &&
+            page.fields === other.pages[j].fields,
         )
       );
     })

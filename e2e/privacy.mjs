@@ -1,4 +1,4 @@
-// Checks the claims in SECURITY.md: editing (the page editor too) and exporting in every format makes
+// Checks the claims in SECURITY.md: editing (the page editor and redaction too) and exporting in every format makes
 // no request outside the app's origin, and works under the recommended CSP.
 // With BASE_URL pointing at the single-file build on disk (file://), only the
 // first check runs: there are no response headers to set a CSP with.
@@ -51,6 +51,12 @@ async function run(withCsp) {
   await page.keyboard.press('Escape');
   await page.setInputFiles('.page-editor input[type=file]', `${FIXTURES}shape.png`);
   await page.waitForSelector('.pe-mark image');
+  // A box to redact: exporting loads MuPDF and its WebAssembly.
+  await page.keyboard.press('x');
+  await page.mouse.move(sheet.x + 20, sheet.y + 120);
+  await page.mouse.down();
+  await page.mouse.move(sheet.x + 200, sheet.y + 160, { steps: 5 });
+  await page.mouse.up();
   await page.click('.pe-bar >> text=Done');
   await page.waitForSelector('.page img[src^="data:image/svg"]');
   const formats = [];

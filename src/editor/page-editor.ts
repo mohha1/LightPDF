@@ -2,6 +2,7 @@ import { prepareImage } from '../browser/files';
 import {
   FONTS,
   LINE_HEIGHT,
+  STAMP,
   markBounds,
   moveMark,
   normalizeRect,
@@ -10,22 +11,38 @@ import {
   quarterTurn,
   resizeMark,
   textLines,
+  type FieldValue,
   type FontName,
   type LineMark,
   type Mark,
   type MarkImage,
   type Point,
   type Rect,
+  type SymbolName,
   type TextMark,
 } from '../core/marks';
 import { h, replaceChildren, type Child } from '../ui/dom';
 import { toast } from '../ui/toast';
 import { History } from './history';
 import { renderMarks, svg } from './marks-svg';
-import type { Doc } from './model';
-import type { SourceRegistry } from './sources';
+import { editsOf, type Doc, type PageEdits } from './model';
+import type { FormField, SourceRegistry } from './sources';
 
-type Tool = 'select' | 'text' | 'draw' | 'highlight' | 'whiteout' | 'rect' | 'ellipse' | 'line' | 'arrow';
+type Tool =
+  | 'select'
+  | 'text'
+  | 'draw'
+  | 'highlight'
+  | 'whiteout'
+  | 'redact'
+  | 'rect'
+  | 'ellipse'
+  | 'line'
+  | 'arrow'
+  | 'stamp'
+  | 'tick'
+  | 'date'
+  | 'crop';
 type Action = 'image';
 
 interface ToolInfo {
@@ -40,13 +57,39 @@ const TOOLS: ToolInfo[] = [
   { id: 'text', label: 'Text', key: 't', hint: 'Click where the text goes, then type.' },
   { id: 'draw', label: 'Draw', key: 'd', hint: 'Draw freehand on the page.' },
   { id: 'highlight', label: 'Highlight', key: 'h', hint: 'Drag across what you want to highlight.' },
-  { id: 'whiteout', label: 'Whiteout', key: 'w', hint: 'Drag over what you want to cover. It is covered, not removed: the text underneath can still be copied.' },
+  { id: 'whiteout', label: 'Whiteout', key: 'w', hint: 'Drag over what you want to cover. It is covered, not removed: the text underneath can still be copied. To remove it, use Redact.' },
+  {
+    id: 'redact',
+    label: 'Redact',
+    key: 'x',
+    hint: 'Drag over what must go. When you download, everything under the box is removed from the file for good and the box turns black.',
+  },
   { id: 'rect', label: 'Rectangle', key: 'r', hint: 'Drag to draw a rectangle. Shift draws a square.' },
   { id: 'ellipse', label: 'Ellipse', key: 'e', hint: 'Drag to draw an ellipse. Shift draws a circle.' },
   { id: 'line', label: 'Line', key: 'l', hint: 'Drag to draw a line. Shift keeps it at 45° steps.' },
   { id: 'arrow', label: 'Arrow', key: 'a', hint: 'Drag from the tail to the point. Shift keeps it at 45° steps.' },
+  { id: 'stamp', label: 'Stamp', key: 's', hint: 'Click where the stamp goes.' },
+  { id: 'tick', label: 'Tick', key: 'k', hint: 'Click to put a tick, cross or dot, for example in a printed box.' },
+  { id: 'date', label: 'Date', key: 'n', hint: "Click where today's date goes." },
   { id: 'image', label: 'Image', key: 'i', hint: '' },
+  { id: 'crop', label: 'Crop', key: 'c', hint: 'Drag over the part of the page to keep. Cropping hides the rest; it stays in the file.' },
 ];
+
+const STAMPS = ['APPROVED', 'DRAFT', 'CONFIDENTIAL', 'PAID', 'RECEIVED', 'REJECTED', 'VOID', 'COPY'];
+const SYMBOL_LABELS: Record<SymbolName, string> = { check: '✓ Tick', cross: '✗ Cross', dot: '• Dot' };
+const SYMBOL_SIZES = [8, 10, 12, 14, 18, 24, 36];
+
+/** Ways to write today's date; all in Latin digits, which the PDF's built-in fonts can draw. */
+const DATE_FORMATS: Record<string, { label: string; format(date: Date): string }> = {
+  iso: { label: '2026-12-31', format: (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` },
+  dmy: { label: '31/12/2026', format: (date) => `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}` },
+  mdy: { label: '12/31/2026', format: (date) => `${pad(date.getMonth() + 1)}/${pad(date.getDate())}/${date.getFullYear()}` },
+  long: {
+    label: '31 December 2026',
+    format: (date) => `${date.getDate()} ${date.toLocaleString('en-GB', { month: 'long' })} ${date.getFullYear()}`,
+  },
+};
+const pad = (value: number) => String(value).padStart(2, '0');
 
 const COLORS = ['#111111', '#ffffff', '#d92d20', '#1f5fd1', '#1b8a3c', '#f5b400'];
 const HIGHLIGHTS = ['#ffe14d', '#9ef09e', '#ffadd6', '#9fd3ff', '#ffc078'];
@@ -64,7 +107,12 @@ const style = {
   shape: { color: '#111111', lineWidth: 2, filled: false },
   whiteout: { color: '#ffffff' },
   highlight: { color: '#ffe14d' },
+  stamp: { text: 'APPROVED', color: '#d92d20' },
+  symbol: { symbol: 'check' as SymbolName, size: 14, color: '#111111' },
 };
+let dateFormat = 'iso';
+/** A new stamp's height in points. */
+const STAMP_HEIGHT = 28;
 type StyleKind = keyof typeof style;
 
 let counter = 0;
@@ -85,7 +133,13 @@ function styleKind(of: Tool | Mark['type']): StyleKind | undefined {
       return 'shape';
     case 'whiteout':
     case 'highlight':
+    case 'stamp':
       return of;
+    case 'tick':
+    case 'symbol':
+      return 'symbol';
+    case 'date':
+      return 'text';
     default:
       return undefined;
   }
@@ -107,23 +161,36 @@ function fitText(mark: TextMark): TextMark {
   return { ...mark, width: Math.max(width, mark.size * 0.5), height: lines.length * mark.size * LINE_HEIGHT };
 }
 
+/** A stamp's width for its text and height: the text with room on both sides. */
+function stampWidth(text: string, height: number): number {
+  measureContext ??= document.createElement('canvas').getContext('2d');
+  const size = height * STAMP.text;
+  let width = text.length * size * 0.72;
+  if (measureContext) {
+    measureContext.font = `700 ${size}px ${FONTS.sans.css}`;
+    width = measureContext.measureText(text).width;
+  }
+  return width + height * 0.9;
+}
+
 export interface PageEditorOptions {
   registry: SourceRegistry;
   doc: Doc;
   /** The page to open first. */
   pageKey: string;
-  /** Called with the new marks of each page that changed, when the person clicks Done. */
-  onDone(changes: Map<string, readonly Mark[]>): void;
+  /** Called with the edits of each page that changed, when the person clicks Done. */
+  onDone(changes: Map<string, PageEdits>): void;
   onClose(): void;
 }
 
 /**
  * A full-screen editor for one page at a time: add text, freehand drawing,
- * highlights, whiteout, shapes, lines and images. Changes stay
- * in drafts until Done, so Cancel leaves the document as it was.
+ * highlights, whiteout, redactions, shapes, lines, stamps, ticks, dates and
+ * images, crop the page and fill in its form. Changes stay in drafts until
+ * Done, so Cancel leaves the document as it was.
  */
 export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: PageEditorOptions): void {
-  const drafts = new Map<string, History<readonly Mark[]>>();
+  const drafts = new Map<string, { history: History<PageEdits>; initial: PageEdits }>();
   let position = Math.max(0, doc.pages.findIndex((page) => page.key === pageKey));
   let view = new PageView({ width: 612, height: 792 }, 0);
   let scale = ACTUAL;
@@ -141,12 +208,18 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
   const history = () => {
     let draft = drafts.get(page().key);
     if (!draft) {
-      draft = new History<readonly Mark[]>(page().marks ?? []);
+      const initial = editsOf(page());
+      draft = { history: new History<PageEdits>(initial), initial };
       drafts.set(page().key, draft);
     }
-    return draft;
+    return draft.history;
   };
-  const marks = () => live ?? history().present;
+  /** The page's marks as last committed. */
+  const current = () => history().present.marks;
+  const fieldValues = () => history().present.fields;
+  /** The PDF's own form fields on the page. */
+  let formFields: FormField[] = [];
+  const marks = () => live ?? current();
   const selectedMark = () => marks().find((mark) => mark.id === selected);
 
   // ------------------------------------------------------------------ layout
@@ -155,7 +228,8 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
   const tools = h('div', { class: 'pe-tools', role: 'toolbar', 'aria-label': 'Tools' });
   const props = h('div', { class: 'pe-props' });
   const overlay = svg('svg', { class: 'pe-overlay' });
-  const sheet = h('div', { class: 'pe-sheet' }, overlay);
+  const fieldLayer = h('div', { class: 'pe-fields' });
+  const sheet = h('div', { class: 'pe-sheet' }, overlay, fieldLayer);
   const stage = h('div', { class: 'pe-stage' }, sheet);
   const imageInput = h('input', {
     type: 'file',
@@ -200,10 +274,13 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
     live = undefined;
     sheet.querySelector('canvas')?.remove();
     rendered = '';
+    formFields = [];
+    fieldLayer.replaceChildren();
     renderBars();
     let size;
     try {
       size = await registry.pageSize(source, index);
+      formFields = await registry.formFields(source, index);
     } catch (error) {
       toast(error instanceof Error ? error.message : 'This page could not be opened.');
       return;
@@ -212,6 +289,7 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
     view = new PageView(size, rotation);
     loaded = true;
     fit();
+    renderFields();
   }
 
   function goTo(next: number) {
@@ -247,6 +325,7 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
     const { width, height } = view.viewSize;
     sheet.style.width = `${width * scale}px`;
     sheet.style.height = `${height * scale}px`;
+    sheet.style.setProperty('--pe-scale', String(scale));
     overlay.setAttribute('viewBox', `0 0 ${width} ${height}`);
     draw();
     placeTextBox();
@@ -387,10 +466,14 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
     const mark = selectedMark();
     const kind = tool === 'select' ? (mark && styleKind(mark.type)) : styleKind(tool);
     const target = mark && kind && styleKind(mark.type) === kind ? mark : undefined;
-    const current = { ...(kind ? style[kind] : {}), ...(editing?.mark ?? target ?? {}) } as Record<string, unknown>;
+    const look = { ...(kind ? style[kind] : {}), ...(editing?.mark ?? target ?? {}) } as Record<string, unknown>;
     const parts: Child[] = [];
 
     const set = (patch: Record<string, unknown>) => {
+      if (typeof patch.dateFormat === 'string') {
+        dateFormat = patch.dateFormat;
+        return renderProps();
+      }
       if (kind && tool !== 'select') Object.assign(style[kind], patch);
       if (editing) {
         editing.mark = fitText({ ...editing.mark, ...patch, text: editing.box.value });
@@ -398,50 +481,110 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
         renderProps();
         editing.box.focus();
       } else if (target) {
-        let next = { ...target, ...patch } as Mark;
+        // A tick's size is its box, not a property of its own.
+        const { size, ...rest } = patch;
+        let next = { ...target, ...(target.type === 'symbol' ? rest : patch) } as Mark;
         if (next.type === 'text') next = fitText(next);
-        push(replaceMark(history().present, next));
+        if (next.type === 'stamp') next = { ...next, width: stampWidth(next.text, next.height) };
+        if (next.type === 'symbol' && typeof size === 'number') next = { ...next, width: size, height: size };
+        push(replaceMark(current(), next));
       } else {
         renderProps();
       }
     };
 
+    if (tool === 'date') {
+      parts.push(
+        group(
+          select(
+            'Date',
+            Object.entries(DATE_FORMATS).map(([value, item]) => [value, item.label]),
+            dateFormat,
+            (value) => set({ dateFormat: value }),
+          ),
+        ),
+      );
+    }
+    if (kind === 'stamp') {
+      const text = String(look.text);
+      parts.push(
+        group(
+          select(
+            'Stamp',
+            [...STAMPS, ...(STAMPS.includes(text) ? [] : [text])].map((item) => [item, item]),
+            text,
+            (value) => set({ text: value }),
+          ),
+          h(
+            'label',
+            { class: 'pe-field' },
+            h('span', { class: 'pe-label' }, 'Own text'),
+            h('input', {
+              class: 'input pe-input',
+              maxlength: 40,
+              placeholder: 'e.g. CHECKED',
+              'aria-label': 'Own stamp text',
+              onchange: (event: Event) => {
+                const value = (event.target as HTMLInputElement).value.trim().toUpperCase();
+                if (value) set({ text: value });
+              },
+            }),
+          ),
+        ),
+      );
+    }
+    if (kind === 'symbol') {
+      const symbolSize = target ? Math.round(Math.min(Number(look.width), Number(look.height))) : Number(look.size);
+      parts.push(
+        group(
+          ...(Object.keys(SYMBOL_LABELS) as SymbolName[]).map((symbol) =>
+            button(SYMBOL_LABELS[symbol], () => set({ symbol }), { pressed: look.symbol === symbol, title: SYMBOL_LABELS[symbol].slice(2) }),
+          ),
+          select(
+            'Size',
+            [...new Set([...SYMBOL_SIZES, symbolSize])].sort((a, b) => a - b).map((size) => [String(size), `${size} pt`]),
+            String(symbolSize),
+            (value) => set({ size: Number(value) }),
+          ),
+        ),
+      );
+    }
     if (kind === 'text') {
       parts.push(
         group(
           select(
             'Font',
             Object.entries(FONTS).map(([value, font]) => [value, font.label]),
-            String(current.font),
+            String(look.font),
             (value) => set({ font: value }),
           ),
           select(
             'Size',
-            sizeChoices(Number(current.size)).map((size) => [String(size), `${size} pt`]),
-            String(Math.round(Number(current.size))),
+            sizeChoices(Number(look.size)).map((size) => [String(size), `${size} pt`]),
+            String(Math.round(Number(look.size))),
             (value) => set({ size: Number(value) }),
           ),
-          button('Bold', () => set({ bold: !current.bold }), { pressed: Boolean(current.bold), title: 'Bold' }),
+          button('Bold', () => set({ bold: !look.bold }), { pressed: Boolean(look.bold), title: 'Bold' }),
         ),
       );
     }
     if (kind) {
-      parts.push(group(colorControl(String(current.color), kind === 'highlight' ? HIGHLIGHTS : COLORS, (color) => set({ color }))));
+      parts.push(group(colorControl(String(look.color), kind === 'highlight' ? HIGHLIGHTS : COLORS, (color) => set({ color }))));
     }
-    if (kind === 'ink' || kind === 'line' || (kind === 'shape' && !current.filled)) {
+    if (kind === 'ink' || kind === 'line' || (kind === 'shape' && !look.filled)) {
       parts.push(
         group(
           select(
             'Thickness',
             WIDTHS.map((width) => [String(width), `${width} pt`]),
-            String(current.lineWidth),
+            String(look.lineWidth),
             (value) => set({ lineWidth: Number(value) }),
           ),
         ),
       );
     }
     if (kind === 'shape') {
-      parts.push(group(checkbox('Fill', Boolean(current.filled), (filled) => set({ filled }))));
+      parts.push(group(checkbox('Fill', Boolean(look.filled), (filled) => set({ filled }))));
     }
     if (target?.type === 'line') {
       parts.push(group(checkbox('Arrowhead', target.arrow, (arrow) => set({ arrow }))));
@@ -452,7 +595,9 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
     if (mark && !editing) {
       parts.push(group(button('Delete', deleteSelected, { title: 'Delete what is selected (Del)' })));
     }
-    const hint = TOOLS.find((info) => info.id === tool)?.hint;
+    let hint = TOOLS.find((info) => info.id === tool)?.hint;
+    const fillable = formFields.filter((field) => !field.readOnly).length;
+    if (tool === 'select' && fillable) hint = `${hint} This page has ${fillable === 1 ? 'a form field' : `${fillable} form fields`}: click to fill ${fillable === 1 ? 'it' : 'them'} in.`;
     if (!target && hint) parts.push(h('span', { class: 'pe-hint' }, hint));
     replaceChildren(props, parts);
   }
@@ -515,7 +660,7 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
 
   function push(next: readonly Mark[]) {
     live = undefined;
-    history().push(next);
+    history().push({ ...history().present, marks: next });
     if (selected && !next.some((mark) => mark.id === selected)) selected = undefined;
     draw();
     renderBars();
@@ -526,6 +671,7 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
     if (!history().undo()) return;
     if (!selectedMark()) selected = undefined;
     draw();
+    renderFields();
     renderBars();
   }
 
@@ -534,6 +680,14 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
     if (!history().redo()) return;
     if (!selectedMark()) selected = undefined;
     draw();
+    renderFields();
+    renderBars();
+  }
+
+  /** Records a value typed or chosen in one of the PDF's form fields. */
+  function setField(name: string, value: FieldValue) {
+    const present = history().present;
+    history().push({ ...present, fields: { ...present.fields, [name]: value } });
     renderBars();
   }
 
@@ -545,7 +699,7 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
     if (!selected) return;
     const id = selected;
     selected = undefined;
-    push(history().present.filter((mark) => mark.id !== id));
+    push(current().filter((mark) => mark.id !== id));
   }
 
   function selectMark(id: string | undefined) {
@@ -569,13 +723,10 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
   }
 
   /** Changes made on any page, compared with the document. */
-  function changes(): Map<string, readonly Mark[]> {
-    const changed = new Map<string, readonly Mark[]>();
-    for (const ref of doc.pages) {
-      const draft = drafts.get(ref.key);
-      if (draft && draft.present !== (ref.marks ?? []) && !(draft.present.length === 0 && !ref.marks?.length)) {
-        changed.set(ref.key, draft.present);
-      }
+  function changes(): Map<string, PageEdits> {
+    const changed = new Map<string, PageEdits>();
+    for (const [key, { history: draft, initial }] of drafts) {
+      if (draft.present !== initial) changed.set(key, draft.present);
     }
     return changed;
   }
@@ -666,7 +817,7 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
     editing = undefined;
     const text = box.value.replace(/\s+$/, '');
     box.remove();
-    const list = history().present;
+    const list = current();
     if (!text.trim()) {
       selected = undefined;
       if (created) {
@@ -701,7 +852,7 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
     const mark: Mark = { type: 'image', id: newId(), image, ...placeIn(view.rectFromView(box), -view.rotation) };
     tool = 'select';
     selected = mark.id;
-    push([...history().present, mark]);
+    push([...current(), mark]);
   }
 
   async function addImage(file: File) {
@@ -714,6 +865,88 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
     } catch (error) {
       toast(error instanceof Error ? error.message : `"${file.name}" could not be added.`);
     }
+  }
+
+  /** Puts a stamp, tick or date where the page was clicked, upright on screen. */
+  function place(at: Point) {
+    const angle = quarterTurn(-view.rotation);
+    let mark: Mark;
+    if (tool === 'stamp') {
+      const { text, color } = style.stamp;
+      const width = stampWidth(text, STAMP_HEIGHT);
+      const box = { x: at.x - width / 2, y: at.y - STAMP_HEIGHT / 2, width, height: STAMP_HEIGHT };
+      mark = { type: 'stamp', id: newId(), text, color, ...placeIn(view.rectFromView(box), angle) };
+    } else if (tool === 'tick') {
+      const { symbol, size, color } = style.symbol;
+      const box = { x: at.x - size / 2, y: at.y - size / 2, width: size, height: size };
+      mark = { type: 'symbol', id: newId(), symbol, color, ...view.rectFromView(box) };
+    } else {
+      const { font, size, bold, color } = style.text;
+      const origin = view.fromView({ x: at.x, y: at.y - size * 0.6 });
+      const text = DATE_FORMATS[dateFormat].format(new Date());
+      mark = fitText({ type: 'text', id: newId(), text, font, size, bold, color, ...origin, width: 0, height: 0, angle });
+    }
+    // Ticks come in runs (a column of boxes), so they stay unselected like freehand lines.
+    selected = mark.type === 'symbol' ? undefined : mark.id;
+    push([...current(), mark]);
+  }
+
+  // ------------------------------------------------------------------ form fields
+
+  /**
+   * Lays the PDF's own form fields over the page as inputs. They take input
+   * with Select; the values are written into the form at download.
+   */
+  function renderFields() {
+    const { width, height } = view.viewSize;
+    const values = fieldValues();
+    const inputs = formFields.map((field) => {
+      const box = view.rectToView(field.rect);
+      const value = values[field.name] ?? field.value;
+      const position = `left:${(box.x / width) * 100}%;top:${(box.y / height) * 100}%;width:${(box.width / width) * 100}%;height:${(box.height / height) * 100}%;`;
+      // Text about two thirds of the box, at most 12 pt, as most PDF viewers show it.
+      const font = `--size:${Math.min(12, Math.max(6, field.multiline ? 10 : box.height * 0.68))};`;
+      const common = { class: `pe-form pe-form-${field.kind}`, style: position + font, title: field.name, 'aria-label': field.name, disabled: field.readOnly };
+      switch (field.kind) {
+        case 'text': {
+          const attributes = { ...common, maxlength: field.maxLength, spellcheck: 'false', onchange: (event: Event) => setField(field.name, (event.target as HTMLInputElement).value) };
+          const input = field.multiline ? h('textarea', attributes) : h('input', { ...attributes, type: 'text' });
+          input.value = String(value);
+          return input;
+        }
+        case 'checkbox':
+          return h('input', { ...common, type: 'checkbox', checked: value === true, onchange: (event: Event) => setField(field.name, (event.target as HTMLInputElement).checked) });
+        case 'radio':
+          return h('input', {
+            ...common,
+            type: 'radio',
+            name: `pe-${field.name}`,
+            checked: value === field.onValue,
+            onchange: () => setField(field.name, field.onValue),
+          });
+        case 'choice':
+          return h(
+            'select',
+            { ...common, onchange: (event: Event) => setField(field.name, (event.target as HTMLSelectElement).value) },
+            h('option', { value: '' }, ''),
+            field.options.map((option) => h('option', { value: option, selected: option === value }, option)),
+          );
+        case 'list': {
+          const chosen = Array.isArray(value) ? value : [value];
+          return h(
+            'select',
+            {
+              ...common,
+              multiple: true,
+              onchange: (event: Event) => setField(field.name, [...(event.target as HTMLSelectElement).selectedOptions].map((option) => option.value)),
+            },
+            field.options.map((option) => h('option', { value: option, selected: chosen.includes(option) }, option)),
+          );
+        }
+      }
+    });
+    fieldLayer.replaceChildren(...inputs);
+    renderProps();
   }
 
   // ------------------------------------------------------------------ pointer
@@ -745,18 +978,19 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
     const at = pointerAt(event);
     const markId = target.closest<SVGElement>('.pe-mark')?.dataset.id;
     const handle = target.closest<SVGElement>('[data-handle]')?.dataset.handle;
-    const current = selectedMark();
+    const chosen = selectedMark();
 
-    if (handle && current) {
-      if (current.type === 'line' && (handle === 'from' || handle === 'to')) {
-        gesture = { kind: 'end', end: handle, original: current };
+    if (handle && chosen) {
+      if (chosen.type === 'line' && (handle === 'from' || handle === 'to')) {
+        gesture = { kind: 'end', end: handle, original: chosen };
       } else {
-        const start = view.rectToView(markBounds(current));
+        const start = view.rectToView(markBounds(chosen));
         const anchor = {
           x: handle.includes('w') ? start.x + start.width : start.x,
           y: handle.includes('n') ? start.y + start.height : start.y,
         };
-        gesture = { kind: 'resize', anchor, start, original: current, ratio: current.type === 'text' || current.type === 'image' };
+        const ratio = ['text', 'image', 'stamp', 'symbol'].includes(chosen.type);
+        gesture = { kind: 'resize', anchor, start, original: chosen, ratio };
       }
     } else if (tool === 'select') {
       const mark = marks().find((other) => other.id === markId);
@@ -777,10 +1011,14 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
       event.preventDefault();
       editText(text, true);
       return;
+    } else if (tool === 'stamp' || tool === 'tick' || tool === 'date') {
+      event.preventDefault();
+      place(at.view);
+      return;
     } else {
       selected = undefined;
       gesture = { kind: 'create', start: at.page, mark: newMark(at.page) };
-      live = [...history().present, gesture.mark];
+      live = [...current(), gesture.mark];
       draw();
     }
     event.preventDefault();
@@ -805,6 +1043,9 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
       case 'whiteout':
       case 'highlight':
         return { type: tool, id, ...box, ...style[tool] };
+      case 'redact':
+      case 'crop':
+        return { type: tool, id, ...box };
       default:
         throw new Error(`No mark for ${tool}`);
     }
@@ -813,7 +1054,7 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
   function onPointerMove(event: PointerEvent) {
     if (!gesture) return;
     const at = pointerAt(event);
-    const list = history().present;
+    const list = current();
 
     switch (gesture.kind) {
       case 'move': {
@@ -913,6 +1154,8 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
         return;
       }
       if (finished.mark.type !== 'ink') selected = finished.mark.id;
+      // A page has one crop: a new one replaces the old.
+      if (finished.mark.type === 'crop') live = live.filter((mark) => mark.type !== 'crop' || mark.id === finished.mark.id);
     }
     push(live);
   }
@@ -920,7 +1163,7 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
   function onDoubleClick(event: MouseEvent) {
     if (tool !== 'select') return;
     const id = (event.target as Element).closest<SVGElement>('.pe-mark')?.dataset.id;
-    const mark = history().present.find((other) => other.id === id);
+    const mark = current().find((other) => other.id === id);
     if (mark?.type === 'text') editText(mark, false);
   }
 
@@ -970,7 +1213,7 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
       // Arrows move it as seen on screen.
       const start = view.fromView({ x: 0, y: 0 });
       const end = view.fromView({ x: dx, y: dy });
-      push(replaceMark(history().present, moveMark(mark, end.x - start.x, end.y - start.y)));
+      push(replaceMark(current(), moveMark(mark, end.x - start.x, end.y - start.y)));
     } else if (event.key === 'PageUp') {
       handled();
       goTo(position - 1);

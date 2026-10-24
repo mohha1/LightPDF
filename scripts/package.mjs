@@ -38,6 +38,7 @@ const wasm = 'node_modules/pdfjs-dist/wasm';
 add('third-party-licenses/pdf.js.txt', 'node_modules/pdfjs-dist/LICENSE');
 add('third-party-licenses/pdf-lib.md', 'node_modules/pdf-lib/LICENSE.md');
 add('third-party-licenses/jszip.md', 'node_modules/jszip/LICENSE.markdown');
+add('third-party-licenses/mupdf.txt', 'node_modules/mupdf/LICENSE');
 for (const name of ['LICENSE_OPENJPEG', 'LICENSE_PDFJS_OPENJPEG', 'LICENSE_JBIG2', 'LICENSE_PDFJS_JBIG2']) {
   add(`third-party-licenses/${name.replace('LICENSE_', '').toLowerCase().replace('pdfjs_', 'pdf.js-')}.txt`, `${wasm}/${name}`);
 }

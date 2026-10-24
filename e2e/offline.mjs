@@ -32,10 +32,16 @@ const sheet = await page.$eval('.pe-sheet', (element) => element.getBoundingClie
 await page.mouse.click(sheet.x + 60, sheet.y + 60);
 await page.keyboard.type('Offline note');
 await page.keyboard.press('Escape');
+// Redaction too: MuPDF and its WebAssembly must come from the cache.
+await page.keyboard.press('x');
+await page.mouse.move(sheet.x + 20, sheet.y + 120);
+await page.mouse.down();
+await page.mouse.move(sheet.x + 200, sheet.y + 160, { steps: 5 });
+await page.mouse.up();
 await page.click('.pe-bar >> text=Done');
 await page.waitForSelector('.page img[src^="data:image/svg"]', { timeout: 10000 });
 await page.click('.tool >> text=Merge all');
 await page.click('label.checkbox:has-text("Page numbers")');
 const [download] = await Promise.all([page.waitForEvent('download'), page.click('.btn-action')]);
-console.log('OFFLINE EDIT, PAGE EDITOR + EXPORT OK', download.suggestedFilename());
+console.log('OFFLINE EDIT, PAGE EDITOR, REDACTION + EXPORT OK', download.suggestedFilename());
 await browser.close();

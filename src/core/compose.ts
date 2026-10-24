@@ -1,9 +1,11 @@
-import { degrees, PDFRef, type PDFDocument, type PDFImage } from 'pdf-lib';
-import { MarkPainter, pageFrame } from './annotate';
+import { degrees, PDFRef, type PDFDocument, type PDFImage, type PDFPage } from 'pdf-lib';
+import { applyCrop, MarkPainter, pageFrame, type MarkFrame } from './annotate';
 import { normalizeAngle } from './angle';
 import { placeImage, POINTS_PER_PIXEL, type ImageInput, type ImageLayout } from './images';
-import type { Mark } from './marks';
+import { fillFields } from './forms';
+import type { FieldValues, Mark } from './marks';
 import { createPdf, loadPdf, ownContents, savePdf } from './pdf';
+import { applyInfo, removeHiddenData, type DocInfo } from './sanitize';
 import { stampPageNumbers, stampWatermark, type PageNumberOptions, type WatermarkOptions } from './stamp';
 
 export type ComposeSource = { kind: 'pdf'; bytes: Uint8Array } | { kind: 'image'; image: ImageInput };
@@ -16,6 +18,8 @@ export interface ComposePage {
   rotation: number;
   /** Drawn on the page from the page editor, before the extra rotation. */
   marks?: readonly Mark[];
+  /** Values for the source PDF's own form fields, filled in from the page editor. */
+  fields?: FieldValues;
 }
 
 export interface ComposeOptions {
@@ -24,6 +28,8 @@ export interface ComposeOptions {
   flatten: boolean;
   pageNumbers?: PageNumberOptions;
   watermark?: WatermarkOptions;
+  /** Strips metadata, attachments, scripts and anything else not seen on the pages. */
+  removeHidden?: boolean;
 }
 
 /**
@@ -38,11 +44,14 @@ export class Composer {
     private options: ComposeOptions,
   ) {}
 
-  async compose(pages: ComposePage[], title: string): Promise<Uint8Array> {
+  /** Builds one document; `info` holds the properties set on it, which are kept even when hidden data goes. */
+  async compose(pages: ComposePage[], title: string, info?: DocInfo): Promise<Uint8Array> {
     if (pages.length === 0) throw new Error('This document has no pages.');
     const doc = (await this.passThrough(pages)) ?? (await this.assemble(pages, title));
     if (this.options.pageNumbers) await stampPageNumbers(doc, this.options.pageNumbers);
     if (this.options.watermark) await stampWatermark(doc, this.options.watermark);
+    if (this.options.removeHidden) removeHiddenData(doc);
+    if (info) applyInfo(doc, info);
     return savePdf(doc);
   }
 
@@ -57,12 +66,11 @@ export class Composer {
 
     const doc = await loadPdf(source.bytes);
     if (doc.getPageCount() !== pages.length) return undefined;
+    fillFields(doc, fieldsOf(pages, pages[0].source));
     if (this.options.flatten) flatten(doc);
     const painter = new MarkPainter(doc);
     for (const [position, page] of doc.getPages().entries()) {
-      const { marks, rotation } = pages[position];
-      if (marks) await painter.paint(page, marks, pageFrame(page));
-      rotate(page, rotation);
+      await edit(painter, page, pages[position], pageFrame(page));
     }
     return doc;
   }
@@ -88,12 +96,9 @@ export class Composer {
         const placement = placeImage(image.width, image.height, this.options.imageLayout);
         const page = doc.addPage([placement.pageWidth, placement.pageHeight]);
         page.drawImage(image, { x: placement.x, y: placement.y, width: placement.width, height: placement.height });
-        if (first.marks) {
-          // The editor showed the image itself, at 0.75 points per pixel.
-          const height = image.height * POINTS_PER_PIXEL;
-          await painter.paint(page, first.marks, { box: placement, rotation: 0, height, scale: placement.height / height });
-        }
-        rotate(page, first.rotation);
+        // The editor showed the image itself, at 0.75 points per pixel.
+        const height = image.height * POINTS_PER_PIXEL;
+        await edit(painter, page, first, { box: placement, rotation: 0, height, scale: placement.height / height });
         start++;
         continue;
       }
@@ -101,35 +106,51 @@ export class Composer {
       let end = start + 1;
       while (end < pages.length && pages[end].source === first.source) end++;
       const run = pages.slice(start, end);
-      const copied = await doc.copyPages(await this.load(first.source, source.bytes), run.map((page) => page.index));
+      const fields = fieldsOf(pages, first.source);
+      const copied = await doc.copyPages(await this.load(first.source, source.bytes, fields), run.map((page) => page.index));
       for (const [i, page] of copied.entries()) {
         doc.addPage(page);
         ownContents(page);
-        const { marks, rotation } = run[i];
-        if (marks) await painter.paint(page, marks, pageFrame(page));
-        rotate(page, rotation);
+        await edit(painter, page, run[i], pageFrame(page));
       }
       start = end;
     }
     return doc;
   }
 
-  private load(id: string, bytes: Uint8Array): Promise<PDFDocument> {
-    let doc = this.loaded.get(id);
+  /** A source PDF with its form filled in; each set of values gets its own copy. */
+  private load(id: string, bytes: Uint8Array, fields: FieldValues): Promise<PDFDocument> {
+    const key = `${id}:${JSON.stringify(Object.entries(fields).sort(([a], [b]) => a.localeCompare(b)))}`;
+    let doc = this.loaded.get(key);
     if (!doc) {
       doc = loadPdf(bytes).then((loaded) => {
         // Form fields don't survive being copied to another document, so
-        // flattening has to happen in the source.
+        // values are drawn in, and flattening done, in the source.
+        fillFields(loaded, fields);
         if (this.options.flatten) flatten(loaded);
         return loaded;
       });
-      this.loaded.set(id, doc);
+      this.loaded.set(key, doc);
     }
     return doc;
   }
 }
 
-function rotate(page: ReturnType<PDFDocument['getPage']>, extra: number): void {
+/** The page editor's changes to one page: marks, then the crop, then the extra rotation. */
+async function edit(painter: MarkPainter, page: PDFPage, ref: ComposePage, frame: MarkFrame): Promise<void> {
+  if (ref.marks) {
+    await painter.paint(page, ref.marks, frame);
+    applyCrop(page, ref.marks, frame);
+  }
+  rotate(page, ref.rotation);
+}
+
+/** Form values for one source from the document's pages; a later page wins. */
+function fieldsOf(pages: ComposePage[], source: string): FieldValues {
+  return Object.assign({}, ...pages.filter((page) => page.source === source && page.fields).map((page) => page.fields));
+}
+
+function rotate(page: PDFPage, extra: number): void {
   if (extra) page.setRotation(degrees(normalizeAngle(page.getRotation().angle + extra)));
 }
 

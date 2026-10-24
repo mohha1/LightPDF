@@ -26,6 +26,13 @@ export async function createPdf(): Promise<PDFDocument> {
   return doc;
 }
 
+/** A one-page PDF with nothing on it. */
+export async function blankPdf(width: number, height: number): Promise<Bytes> {
+  const doc = await createPdf();
+  doc.addPage([width, height]);
+  return savePdf(doc);
+}
+
 export async function savePdf(doc: PDFDocument): Promise<Bytes> {
   return doc.save({ useObjectStreams: true });
 }

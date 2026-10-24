@@ -11,12 +11,12 @@ LightPDF is built so that your documents never leave your device. This page expl
 ### Files never leave your device
 
 - LightPDF is a static web app. There is no backend, no API and no database, so there is nowhere for a file to be uploaded to.
-- Files you add are read into the memory of your browser tab. They are opened by [PDF.js](https://github.com/mozilla/pdf.js), edited with [pdf-lib](https://github.com/Hopding/pdf-lib) and packed with [JSZip](https://github.com/Stuk/jszip), all inside the tab.
+- Files you add are read into the memory of your browser tab. They are opened by [PDF.js](https://github.com/mozilla/pdf.js), edited with [pdf-lib](https://github.com/Hopding/pdf-lib), redacted with [MuPDF](https://mupdf.com) and packed with [JSZip](https://github.com/Stuk/jszip), all inside the tab.
 - Results are handed back to your browser as a download, or written to the file or folder you choose with **Save as…**.
 - All code is bundled at build time and served from the same site as the page. The app loads no third-party scripts, styles, fonts, analytics, ads or trackers, and sets no cookies.
 - After the first visit the app works with the network switched off.
 
-The browser test [`e2e/privacy.mjs`](e2e/privacy.mjs) checks this: adding PDFs and images and exporting them as PDF, compressed PDF, JPG, PNG and plain text makes no network request outside the app's own origin. The only outside link in the app is **Source** in the header, which opens this repository when you click it.
+The browser test [`e2e/privacy.mjs`](e2e/privacy.mjs) checks this: adding PDFs and images, editing a page (including a box to redact) and exporting them as PDF, compressed PDF, JPG, PNG and plain text makes no network request outside the app's own origin. The only outside link in the app is **Source** in the header, which opens this repository when you click it.
 
 The single-file `LightPDF.html` in the download package passes the same check when opened from disk.
 
@@ -25,7 +25,7 @@ The single-file `LightPDF.html` in the download package passes the same check wh
 | What | Where | How long |
 | --- | --- | --- |
 | Your files and their thumbnails | The tab's memory | Until you close the tab or choose **Start over** |
-| What you add in the page editor (text, drawings, images) | The tab's memory | Until you close the tab |
+| What you add in the page editor (text, drawings, images, form values, boxes to redact) and document properties you set | The tab's memory | Until you close the tab |
 | Download settings (format, compression, page number and watermark options, **including the watermark text**) and thumbnail zoom | `localStorage` for the site | Until you clear the site's data |
 | The app's own files (HTML, JavaScript, CSS, icons) | Cache Storage, via the service worker | Replaced on each update |
 
@@ -50,22 +50,40 @@ LightPDF relies on the browser's sandbox and adds its own limits on top:
 PDF files can be crafted to attack the software that opens them. LightPDF reduces that risk as follows:
 
 - PDFs are parsed by PDF.js inside a separate Web Worker. Its WebAssembly image decoders (JPEG 2000, JBIG2 and CCITT fax) are bundled with the app and also run inside that worker.
-- Pages are drawn onto a canvas and shown as images. The editor doesn't display a PDF's links, form widgets or annotations as live page content.
-- JavaScript embedded in a PDF is never run. LightPDF doesn't enable PDF.js scripting or XFA forms.
+- Pages are drawn onto a canvas and shown as images. The editor doesn't display a PDF's links or annotations as live page content. The page editor shows a PDF's form fields as plain inputs LightPDF makes itself, filled with the field's text; the field's own scripts, formatting rules and actions are not run.
+- JavaScript embedded in a PDF is never run. LightPDF doesn't enable PDF.js scripting, MuPDF's JavaScript or XFA forms.
+- MuPDF, which redacts, is WebAssembly bundled with the app and only loaded when a download has boxes to redact. It works on the PDF LightPDF has just built, not on what you added directly.
 - PDF.js is kept up to date. LightPDF uses PDF.js 6, which is not affected by known issues such as [CVE-2024-4367](https://nvd.nist.gov/vuln/detail/CVE-2024-4367) (fixed in 4.2.67).
+
+### Redaction
+
+A box drawn with **Redact** in the page editor removes content from the file; it doesn't cover it. At download:
+
+1. Annotations and form fields that touch a box are taken off the page, and a form field's value is cleared from the form as well (a link's address, a typed value). The page's embedded thumbnail picture is removed.
+2. MuPDF removes every character any part of which lies under a box, blanks the pixels of images under it, removes drawings it covers, and fills the box black.
+3. LightPDF then reads the page back and looks for any character still under a box. If it finds one, the download stops with an error instead of producing a file that only looks redacted.
+4. The file is saved with garbage collection, so the objects the removed content lived in don't remain in the file.
+
+The unit tests ([`tests/redact.test.ts`](tests/redact.test.ts)) check this against every object in the output, decompressed, not just the visible text, including form values and link addresses; and that a redaction engine that does nothing makes the download fail.
+
+What a box doesn't reach: the same words elsewhere in the file, such as on other pages, in bookmarks or in the document's properties. Redact each place, and tick **Remove hidden data** for the properties and metadata.
+
+### Remove hidden data
+
+**Remove hidden data** in the Download panel takes out what a reader of the pages doesn't see: every document property (title, author, software, dates) except those set in **Properties**, XMP metadata, attached files, scripts and actions that run code, open other files or send data, embedded thumbnails, application data and XFA forms. Links within the file and to web pages stay. Objects nothing refers to any more, such as old versions of edited content left by incremental saves, are dropped. [`tests/sanitize.test.ts`](tests/sanitize.test.ts) checks each of these against every object in the output.
 
 ### What LightPDF does not do
 
-- **It doesn't sanitise PDFs.** When a document is one PDF with its pages in their original order, LightPDF edits that PDF in place, so everything in it is kept: metadata, bookmarks, links, form fields, and any attachments or scripts it contains. If you need to strip hidden content before sharing a file, use **Recommended** or **Extreme** compression, or export to JPG or PNG. These redraw every page as an image in a new file, which keeps only how the pages look.
+- **It doesn't remove hidden content unless asked.** When a document is one PDF with its pages in their original order, LightPDF edits that PDF in place, so everything in it is kept: metadata, bookmarks, links, form fields, and any attachments or scripts it contains. Tick **Remove hidden data** to strip what isn't shown on the pages. **Recommended** and **Extreme** compression redraw pages as images, but if that wouldn't make the file smaller the original is kept, so don't rely on compression to remove content.
 - **It doesn't encrypt, digitally sign or password-protect files**, and it can't open password-protected PDFs.
-- **Whiteout doesn't redact.** The page editor's whiteout covers content with a box; the text underneath stays in the file and can be copied or searched.
+- **Whiteout and Crop don't remove anything.** Whiteout covers content with a box and Crop hides the rest of the page; what is underneath or outside stays in the file and can be copied or searched. Use **Redact** to remove content.
 - **It can't protect you from a compromised device or browser.** Malicious browser extensions, for example, can read any page you visit.
 
-Output PDFs are tagged with `LightPDF` as the creator and producer, and with the time they were made. LightPDF adds no other information about you or your device.
+Output PDFs are tagged with `LightPDF` as the creator and producer, and with the time they were made (unless **Remove hidden data** is ticked). LightPDF adds no other information about you or your device.
 
 ### Dependencies
 
-LightPDF has three runtime dependencies: `pdfjs-dist`, `pdf-lib` and `jszip`. They are bundled at build time, with exact versions pinned in `package-lock.json`, and CI installs them with `npm ci`. Run `npm audit` to check them for known vulnerabilities.
+LightPDF has four runtime dependencies: `pdfjs-dist`, `pdf-lib`, `jszip` and `mupdf` (AGPL-3.0; LightPDF is an internal tool, which its owner accepts). They are bundled at build time, with exact versions pinned in `package-lock.json`, and CI installs them with `npm ci`. Run `npm audit` to check them for known vulnerabilities.
 
 ## Hosting it securely
 
@@ -80,7 +98,7 @@ Referrer-Policy: no-referrer
 Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
 ```
 
-- The Content Security Policy only lets the page load code from its own site, and `frame-ancestors 'none'` stops other sites from embedding it. [`e2e/privacy.mjs`](e2e/privacy.mjs) tests it against the production build, sent with every file, adding PDFs and images, editing a page in the page editor and exporting in every format. `'unsafe-inline'` in `style-src` is needed because the editor sets some styles at runtime. `'wasm-unsafe-eval'` lets PDF.js run its WebAssembly image decoders (JPEG 2000, and JBIG2 and CCITT fax in black-and-white scans); without it those images come out blank. It allows WebAssembly only, not JavaScript `eval`, which stays blocked.
+- The Content Security Policy only lets the page load code from its own site, and `frame-ancestors 'none'` stops other sites from embedding it. [`e2e/privacy.mjs`](e2e/privacy.mjs) tests it against the production build, sent with every file, adding PDFs and images, editing a page in the page editor (including a box to redact) and exporting in every format. `'unsafe-inline'` in `style-src` is needed because the editor sets some styles at runtime. `'wasm-unsafe-eval'` lets PDF.js run its WebAssembly image decoders (JPEG 2000, and JBIG2 and CCITT fax in black-and-white scans) and MuPDF redact; without it those images come out blank and redaction fails. It allows WebAssembly only, not JavaScript `eval`, which stays blocked.
 - If you serve LightPDF from a subfolder of a site that hosts other apps, give it its own origin (for example a subdomain) instead, so that its storage and permissions are kept apart.
 - GitHub Pages can't set custom headers. It serves over HTTPS, which is the most important part.
 

@@ -1,7 +1,8 @@
 /**
- * Things drawn on a page in the page editor: text, shapes, freehand lines,
- * highlights, whiteout and images. They are stored with the page and only
- * written into the PDF at export, like every other edit.
+ * Things added to a page in the page editor: text, shapes, freehand lines,
+ * highlights, whiteout, images, stamps and ticks, plus a crop and boxes to
+ * redact. They are stored with the page and only written into the PDF at
+ * export, like every other edit.
  *
  * Coordinates are in points on the page as a viewer shows the original file
  * (its own /Rotate applied, none of the editor's extra rotation), with the
@@ -100,7 +101,72 @@ export interface InkMark {
   lineWidth: number;
 }
 
-export type Mark = TextMark | ImageMark | ShapeMark | AreaMark | LineMark | InkMark;
+/** A rubber stamp: bold capitals in a frame, such as APPROVED or DRAFT. */
+export interface StampMark extends Placed {
+  type: 'stamp';
+  id: string;
+  text: string;
+  color: string;
+}
+
+export type SymbolName = 'check' | 'cross' | 'dot';
+
+/** A tick, a cross or a dot, for forms that are only printed lines and boxes. */
+export interface SymbolMark extends Rect {
+  type: 'symbol';
+  id: string;
+  symbol: SymbolName;
+  color: string;
+}
+
+/**
+ * Removes everything under the box at export (text, images, drawings,
+ * annotations) and fills it black. See core/redact.ts.
+ */
+export interface RedactMark extends Rect {
+  type: 'redact';
+  id: string;
+}
+
+/** The part of the page to keep; a page has at most one. */
+export interface CropMark extends Rect {
+  type: 'crop';
+  id: string;
+}
+
+export type Mark = TextMark | ImageMark | ShapeMark | AreaMark | LineMark | InkMark | StampMark | SymbolMark | RedactMark | CropMark;
+
+/** A value typed or chosen in one of the PDF's own form fields, by the field's full name. */
+export type FieldValue = string | boolean | readonly string[];
+export type FieldValues = Readonly<Record<string, FieldValue>>;
+
+/** Stamp text as a share of the stamp's height, and its frame's line width. */
+export const STAMP = { text: 0.55, frame: 0.07 };
+
+/** The strokes of a tick or cross in a unit square (y down), and their width as a share of its size. */
+export const SYMBOLS: Record<Exclude<SymbolName, 'dot'>, Point[][]> & { lineWidth: number } = {
+  check: [[{ x: 0.12, y: 0.55 }, { x: 0.4, y: 0.82 }, { x: 0.9, y: 0.18 }]],
+  cross: [
+    [{ x: 0.15, y: 0.15 }, { x: 0.85, y: 0.85 }],
+    [{ x: 0.85, y: 0.15 }, { x: 0.15, y: 0.85 }],
+  ],
+  lineWidth: 0.13,
+};
+
+/** A symbol's strokes on the page. */
+export function symbolStrokes(mark: SymbolMark): Point[][] {
+  if (mark.symbol === 'dot') return [];
+  return SYMBOLS[mark.symbol].map((line) => line.map((p) => ({ x: mark.x + p.x * mark.width, y: mark.y + p.y * mark.height })));
+}
+
+/** The page's crop, if it has one. */
+export function cropOf(marks: readonly Mark[] | undefined): CropMark | undefined {
+  return marks?.findLast((mark): mark is CropMark => mark.type === 'crop');
+}
+
+export function overlaps(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
 
 /** Space between lines of text, as a multiple of the font size. */
 export const LINE_HEIGHT = 1.2;
@@ -211,6 +277,7 @@ export function markBounds(mark: Mark): Rect {
   switch (mark.type) {
     case 'text':
     case 'image':
+    case 'stamp':
       return placedBounds(mark);
     case 'line':
       return normalizeRect(mark.from, mark.to);
@@ -248,6 +315,7 @@ export function resizeMark<M extends Mark>(mark: M, next: Rect): M {
     case 'ink':
       return { ...mark, points: mark.points.map(map) };
     case 'image':
+    case 'stamp':
       return { ...mark, ...placeIn(next, mark.angle) };
     case 'text': {
       const scale = quarterTurn(mark.angle) % 180 === 0 ? sy : sx;

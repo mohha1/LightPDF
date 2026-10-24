@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { Script } from 'node:vm';
 import type { Plugin } from 'vite';
@@ -83,6 +84,62 @@ function classicWorker(): Plugin {
   };
 }
 
+const MUPDF = fileURLToPath(new URL('node_modules/mupdf/dist/', import.meta.url));
+
+function withoutWasmReference(code: string): string {
+  const reference = 'new URL("mupdf-wasm.wasm",import.meta.url).href';
+  if (!code.includes(reference)) throw new Error('MuPDF changed shape; update mupdf() in vite.config.ts');
+  return code.replace(reference, '"mupdf-wasm.wasm"');
+}
+
+/**
+ * MuPDF (redaction) for the browser, loaded only when a download has boxes to
+ * redact:
+ * - `virtual:mupdf-wasm` is the URL of its WebAssembly, gzipped (10 MB becomes
+ *   about 4 MB; src/browser/mupdf.ts unzips it). It is a hashed asset, or a
+ *   data: URL in the single-file build and the dev server.
+ * - `virtual:mupdf-source` (single-file build only) is MuPDF's two modules
+ *   joined into one module's source text, which the page imports from a blob:
+ *   URL; a page opened from disk can't load other files.
+ */
+function mupdf(single: boolean): Plugin {
+  let serving = false;
+  return {
+    name: 'lightpdf-mupdf',
+    configResolved(config) {
+      serving = config.command === 'serve';
+    },
+    resolveId(source) {
+      return source === 'virtual:mupdf-wasm' || source === 'virtual:mupdf-source' ? `\0${source}` : null;
+    },
+    transform(code, id) {
+      // The app hands MuPDF its WebAssembly (wasmBinary), so its own reference
+      // to the file goes, or the bundler would ship the 10 MB file as well.
+      if (!id.startsWith(`${MUPDF}mupdf-wasm.js`)) return null;
+      return withoutWasmReference(code);
+    },
+    load(id) {
+      if (id === '\0virtual:mupdf-wasm') {
+        const gzipped = gzipSync(readFileSync(`${MUPDF}mupdf-wasm.wasm`), { level: 9 });
+        if (single || serving) return `export default ${JSON.stringify(`data:application/octet-stream;base64,${gzipped.toString('base64')}`)};`;
+        // Not ".gz": some servers would send that with Content-Encoding: gzip.
+        const ref = this.emitFile({ type: 'asset', name: 'mupdf-wasm.bin', source: gzipped });
+        return `export default import.meta.ROLLUP_FILE_URL_${ref};`;
+      }
+      if (id === '\0virtual:mupdf-source') {
+        const loader = readFileSync(`${MUPDF}mupdf-wasm.js`, 'utf8');
+        const api = readFileSync(`${MUPDF}mupdf.js`, 'utf8');
+        const exported = /export default _;\s*$/;
+        const imported = 'import libmupdf_wasm from "./mupdf-wasm.js";';
+        if (!exported.test(loader) || !api.includes(imported)) throw new Error('MuPDF changed shape; update mupdf() in vite.config.ts');
+        const joined = api.replace(imported, () => `const libmupdf_wasm = (() => { ${withoutWasmReference(loader).replace(exported, '')}; return _; })();`);
+        return `export default ${JSON.stringify(joined)};`;
+      }
+      return null;
+    },
+  };
+}
+
 /**
  * Puts the whole app into one HTML file that works when opened from disk,
  * where browsers refuse to load JavaScript modules from separate files.
@@ -132,7 +189,12 @@ export default defineConfig(({ mode }) => {
     base: './',
     publicDir: single ? false : 'public',
     resolve: single
-      ? { alias: [{ find: /^\.\/pdf-worker$/, replacement: fileURLToPath(new URL('src/browser/pdf-worker.single.ts', import.meta.url)) }] }
+      ? {
+          alias: [
+            { find: /^\.\/pdf-worker$/, replacement: fileURLToPath(new URL('src/browser/pdf-worker.single.ts', import.meta.url)) },
+            { find: /^\.\/mupdf-module$/, replacement: fileURLToPath(new URL('src/browser/mupdf-module.single.ts', import.meta.url)) },
+          ],
+        }
       : undefined,
     build: {
       target: 'es2022',
@@ -145,7 +207,7 @@ export default defineConfig(({ mode }) => {
         rolldownOptions: { output: { codeSplitting: false } },
       }),
     },
-    plugins: single ? [classicWorker(), singleFile()] : [serviceWorker()],
+    plugins: single ? [classicWorker(), mupdf(true), singleFile()] : [mupdf(false), serviceWorker()],
     test: {
       environment: 'node',
       include: ['tests/**/*.test.ts'],

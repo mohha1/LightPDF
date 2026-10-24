@@ -1207,6 +1207,74 @@ input[type='checkbox']:disabled {
 .pe-handle-to {
   cursor: move;
 }
+/* A box to redact shows what it covers while editing; it is solid black in the file. */
+.pe-redact {
+  fill-opacity: 0.72;
+}
+.pe-crop-shade {
+  fill: rgba(17, 17, 17, 0.45);
+  pointer-events: none;
+}
+.pe-crop-edge {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.pe-input {
+  width: 140px;
+  height: 28px;
+  font-size: 12px;
+}
+
+/* The PDF's own form fields, laid over the page. They take input with Select. */
+.pe-fields {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.pe-sheet[data-tool='select'] .pe-form {
+  pointer-events: auto;
+}
+.pe-form {
+  position: absolute;
+  margin: 0;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 0;
+  background: rgba(17, 17, 17, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(17, 17, 17, 0.35);
+  color: #000;
+  font: calc(var(--size) * var(--pe-scale, 1) * 1px) / 1.15 Helvetica, Arial, sans-serif;
+  resize: none;
+}
+.pe-form:focus {
+  outline: 2px solid var(--fg);
+  outline-offset: 0;
+  background: rgba(255, 255, 255, 0.9);
+}
+.pe-form:disabled {
+  background: transparent;
+  box-shadow: none;
+}
+.pe-form-checkbox,
+.pe-form-radio {
+  appearance: none;
+  padding: 0;
+  cursor: pointer;
+}
+.pe-form-checkbox:checked {
+  background: rgba(17, 17, 17, 0.06) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.pe-form-radio {
+  border-radius: 50%;
+}
+.pe-form-radio:checked {
+  background: radial-gradient(circle, #000 0 32%, rgba(17, 17, 17, 0.06) 36%);
+}
+
 /* Typing happens in a text box laid exactly over the text on the page. */
 .pe-text {
   position: absolute;
@@ -1260,6 +1328,12 @@ input[type='checkbox']:disabled {
   border: 1px solid var(--fg);
   background: var(--bg);
   box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.1);
+}
+.dialog-wide {
+  width: min(520px, 100%);
+}
+.properties-facts .field-section {
+  margin-top: 6px;
 }
 .dialog h2 {
   margin-bottom: 16px;

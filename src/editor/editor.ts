@@ -248,6 +248,49 @@ export function mountEditor(root: HTMLElement): void {
     return model.pageKeys(project()).filter((key) => selection.has(key));
   }
 
+  /** Shows and edits a document's properties (title, author…) and what its file holds. */
+  async function showProperties(doc: model.Doc) {
+    if (busy) return;
+    busy = true;
+    closeMenu();
+    try {
+      const first = doc.pages.map((page) => registry.get(page.source)).find((source) => source?.kind === 'pdf' && !source.generated);
+      const [{ editProperties }, details] = await Promise.all([import('./properties'), first ? registry.details(first.id) : undefined]);
+      const info = await editProperties(doc.name, doc.info, details);
+      if (info) commit(model.setDocInfo(project(), doc.id, info));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'The properties could not be shown.');
+    } finally {
+      busy = false;
+    }
+  }
+
+  /**
+   * Inserts a blank page after `afterKey` (or at the end), the size and
+   * orientation of the page before it as shown.
+   */
+  async function insertBlank(afterKey?: string) {
+    const docs = project();
+    const lastDoc = docs.at(-1);
+    const before = afterKey
+      ? docs.flatMap((doc) => doc.pages).find((page) => page.key === afterKey)
+      : lastDoc?.pages.at(-1);
+    if (!before || busy) return;
+    busy = true;
+    try {
+      const size = await registry.pageSize(before.source, before.index);
+      const sideways = before.rotation % 180 !== 0;
+      const { blankPdf } = await import('../core/pdf');
+      const bytes = await blankPdf(sideways ? size.height : size.width, sideways ? size.width : size.height);
+      const source = await registry.addGenerated(bytes, 'Blank page.pdf');
+      commit(model.insertPages(project(), source.id, 1, before.key));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'The blank page could not be added.');
+    } finally {
+      busy = false;
+    }
+  }
+
   function deletePages(keys: Set<string>) {
     if (keys.size === 0) return;
     commit(model.deletePages(project(), keys));
@@ -356,6 +399,9 @@ export function mountEditor(root: HTMLElement): void {
         toolButton('Edit page', () => openPage(selectedInOrder()[0]), {
           disabled: count !== 1,
           title: 'Add text, drawings or images to the selected page (E, or double-click a page)',
+        }),
+        toolButton('Blank page', () => void insertBlank(selectedInOrder().at(-1)), {
+          title: none ? 'Add a blank page at the end' : 'Insert a blank page after the selected pages',
         }),
         toolButton('Rotate left', () => commit(model.rotatePages(project(), selection, -90)), {
           disabled: none,
@@ -480,9 +526,7 @@ export function mountEditor(root: HTMLElement): void {
       // Only pages edited in the page editor need this, so it loads with it.
       marked = Promise.all([plain, registry.pageSize(page.source, page.index), import('./marks-svg')]).then(
         ([url, size, { markedThumbnail }]) => {
-          const shrink = MARKED_THUMB / Math.max(size.width, size.height);
-          const pixels = { width: Math.round(size.width * shrink), height: Math.round(size.height * shrink) };
-          return markedThumbnail(url, pixels, size, marks);
+          return markedThumbnail(url, size, marks, MARKED_THUMB);
         },
       );
       markedThumbs.set(marks, marked);
@@ -711,7 +755,7 @@ export function mountEditor(root: HTMLElement): void {
           pageKey: key,
           onDone: (changes) => {
             let next = project();
-            for (const [pageKey, marks] of changes) next = model.setPageMarks(next, pageKey, marks);
+            for (const [pageKey, edits] of changes) next = model.setPageEdits(next, pageKey, edits);
             commit(next);
             toast(`Changes kept on ${plural(changes.size, 'page')}.`, { label: 'Undo', run: undo });
           },
@@ -746,6 +790,8 @@ export function mountEditor(root: HTMLElement): void {
     const menu = h(
       'div',
       { class: 'menu', role: 'menu', 'aria-label': `More actions: ${doc.name}` },
+      item('Properties…', 'doc-properties', false),
+      item('Add a blank page at the end', 'doc-blank', false),
       item('Split into single pages', 'doc-explode', doc.pages.length < 2),
       item('Merge with the next file', 'doc-merge-next', index === docs.length - 1),
       item('Move left', 'doc-up', index === 0),
@@ -823,6 +869,10 @@ export function mountEditor(root: HTMLElement): void {
       }
       case 'doc-rotate':
         return commit(model.rotatePages(docs, docKeys, 90));
+      case 'doc-properties':
+        return void showProperties(doc);
+      case 'doc-blank':
+        return void insertBlank(doc.pages.at(-1)?.key);
       case 'doc-explode':
         return commit(model.splitIntoPages(docs, doc.id));
       case 'doc-merge-next':
@@ -974,7 +1024,7 @@ export function mountEditor(root: HTMLElement): void {
     for (const id of new Set(docs.flatMap((doc) => doc.pages.map((page) => page.source)))) {
       const source = registry.get(id);
       if (source?.handle) handles.push(source.handle);
-      else if (source && !source.deleted) missing.push(source.file.name);
+      else if (source && !source.deleted && !source.generated) missing.push(source.file.name);
     }
     return { handles, missing };
   }

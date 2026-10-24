@@ -121,11 +121,13 @@ export interface SymbolMark extends Rect {
 
 /**
  * Removes everything under the box at export (text, images, drawings,
- * annotations) and fills it black. See core/redact.ts.
+ * annotations) and fills it black, or with `blank` leaves the page showing
+ * through, as if nothing had been there. See core/redact.ts.
  */
 export interface RedactMark extends Rect {
   type: 'redact';
   id: string;
+  blank?: boolean;
 }
 
 /** The part of the page to keep; a page has at most one. */

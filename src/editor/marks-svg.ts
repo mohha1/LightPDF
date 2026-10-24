@@ -164,8 +164,12 @@ function markElement(mark: Mark, final: boolean, page: Size): SVGElement {
         'stroke-linejoin': 'round',
       });
     }
-    case 'redact':
-      return svg('rect', { class: final ? undefined : 'pe-redact', x: mark.x, y: mark.y, width: mark.width, height: mark.height, fill: '#000' });
+    case 'redact': {
+      const box = { x: mark.x, y: mark.y, width: mark.width, height: mark.height };
+      // In thumbnails a blank one shows white: the page usually is, and what was there is gone.
+      if (final) return svg('rect', { ...box, fill: mark.blank ? '#fff' : '#000' });
+      return svg('rect', { ...box, class: mark.blank ? 'pe-redact pe-redact-blank' : 'pe-redact' });
+    }
     case 'crop': {
       if (final) return svg('g');
       // Shade everything outside the crop.

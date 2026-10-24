@@ -9,7 +9,9 @@ const intersects = (a: Box, b: Box) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3]
 /**
  * Applies the /Redact annotations that MarkPainter put on the pages, with
  * MuPDF: text, image pixels and drawings under each box are removed from the
- * file (not covered), and the box is filled black.
+ * file (not covered). A box with a fill colour is filled black; one without
+ * is left blank, so the page shows through as if nothing had been there
+ * (image pixels under it turn white).
  *
  * It fails closed: if any character is still found under a box afterwards,
  * it throws rather than hand back a file that only looks redacted. Saving
@@ -23,17 +25,28 @@ export function applyRedactions(mupdf: MuPDFLibrary, bytes: Uint8Array): Uint8Ar
     let redacted = 0;
     for (let index = 0; index < pdf.countPages(); index++) {
       const page = pdf.loadPage(index) as MuPDF.PDFPage;
-      const boxes = page
-        .getAnnotations()
-        .filter((annotation) => annotation.getType() === 'Redact')
-        .map((annotation) => annotation.getRect() as Box);
+      const annotations = page.getAnnotations().filter((annotation) => annotation.getType() === 'Redact');
+      const boxes = annotations.map((annotation) => annotation.getRect() as Box);
       if (boxes.length === 0) continue;
-      page.applyRedactions(
-        true,
-        mupdf.PDFPage.REDACT_IMAGE_PIXELS,
-        mupdf.PDFPage.REDACT_LINE_ART_REMOVE_IF_COVERED,
-        mupdf.PDFPage.REDACT_TEXT_REMOVE,
-      );
+      const apply = (target: MuPDF.PDFPage, blackBoxes: boolean) =>
+        target.applyRedactions(
+          blackBoxes,
+          mupdf.PDFPage.REDACT_IMAGE_PIXELS,
+          mupdf.PDFPage.REDACT_LINE_ART_REMOVE_IF_COVERED,
+          mupdf.PDFPage.REDACT_TEXT_REMOVE,
+        );
+      // One call treats every box on the page alike, so the blank ones are
+      // set aside while the black ones are applied, then put back and applied.
+      // hasInteriorColor() is always false for Redact annotations, so read the entry itself.
+      const blank = annotations.filter((annotation) => !annotation.getObject().get('IC').isArray());
+      const blankBoxes = blank.map((annotation) => annotation.getRect());
+      for (const annotation of blank) page.deleteAnnotation(annotation);
+      if (blank.length < annotations.length) apply(page, true);
+      if (blankBoxes.length) {
+        const again = pdf.loadPage(index) as MuPDF.PDFPage;
+        for (const rect of blankBoxes) again.createAnnotation('Redact').setRect(rect);
+        apply(again, false);
+      }
       // Check a freshly loaded page: what is in the file now.
       const after = pdf.loadPage(index) as MuPDF.PDFPage;
       let left = '';

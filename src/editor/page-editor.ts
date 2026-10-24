@@ -62,7 +62,7 @@ const TOOLS: ToolInfo[] = [
     id: 'redact',
     label: 'Redact',
     key: 'x',
-    hint: 'Drag over what must go. When you download, everything under the box is removed from the file for good and the box turns black.',
+    hint: 'Drag over what must go. When you download, everything under the box is removed from the file for good: the box turns black, or with Leave blank the page shows through as if it was never there.',
   },
   { id: 'rect', label: 'Rectangle', key: 'r', hint: 'Drag to draw a rectangle. Shift draws a square.' },
   { id: 'ellipse', label: 'Ellipse', key: 'e', hint: 'Drag to draw an ellipse. Shift draws a circle.' },
@@ -108,6 +108,7 @@ const style = {
   whiteout: { color: '#ffffff' },
   highlight: { color: '#ffe14d' },
   stamp: { text: 'APPROVED', color: '#d92d20' },
+  redact: { blank: false },
   symbol: { symbol: 'check' as SymbolName, size: 14, color: '#111111' },
 };
 let dateFormat = 'iso';
@@ -134,6 +135,7 @@ function styleKind(of: Tool | Mark['type']): StyleKind | undefined {
     case 'whiteout':
     case 'highlight':
     case 'stamp':
+    case 'redact':
       return of;
     case 'tick':
     case 'symbol':
@@ -505,6 +507,18 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
         ),
       );
     }
+    if (kind === 'redact') {
+      parts.push(
+        group(
+          h('span', { class: 'pe-label' }, 'Removed area'),
+          button('Black box', () => set({ blank: false }), { pressed: !look.blank, title: 'Fill what was removed with black' }),
+          button('Leave blank', () => set({ blank: true }), {
+            pressed: Boolean(look.blank),
+            title: 'Leave the page showing, as if it was never there (pictures under the box turn white)',
+          }),
+        ),
+      );
+    }
     if (kind === 'stamp') {
       const text = String(look.text);
       parts.push(
@@ -568,7 +582,7 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
         ),
       );
     }
-    if (kind) {
+    if (kind && kind !== 'redact') {
       parts.push(group(colorControl(String(look.color), kind === 'highlight' ? HIGHLIGHTS : COLORS, (color) => set({ color }))));
     }
     if (kind === 'ink' || kind === 'line' || (kind === 'shape' && !look.filled)) {
@@ -1044,8 +1058,9 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
       case 'highlight':
         return { type: tool, id, ...box, ...style[tool] };
       case 'redact':
+        return { type: 'redact', id, ...box, blank: style.redact.blank };
       case 'crop':
-        return { type: tool, id, ...box };
+        return { type: 'crop', id, ...box };
       default:
         throw new Error(`No mark for ${tool}`);
     }

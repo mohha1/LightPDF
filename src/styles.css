@@ -1209,7 +1209,17 @@ input[type='checkbox']:disabled {
 }
 /* A box to redact shows what it covers while editing; it is solid black in the file. */
 .pe-redact {
+  fill: #000;
   fill-opacity: 0.72;
+}
+/* Leave blank: what goes is crossed through, the page shows around it. */
+.pe-redact-blank {
+  fill: #fff;
+  fill-opacity: 0.55;
+  stroke: #000;
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
 }
 .pe-crop-shade {
   fill: rgba(17, 17, 17, 0.45);

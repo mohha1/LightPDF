@@ -149,16 +149,27 @@ check('the rest of the page stays', text[0].includes('Line 0 of some body text')
 check('stamp and date are in the file', text[0].includes('APPROVED') && text[0].includes(date));
 check('other pages are untouched', text[1].includes('alpha page 2'));
 
+// Redact page 3 leaving it blank, as if the heading was never there
+await openEditor(card(0, 2));
+await page.keyboard.press('x');
+await page.click('.pe-props >> text=Leave blank');
+await drag([40, 205], [560, 262]);
+check('Leave blank marks the area with a dashed box', (await page.$$('.pe-redact-blank')).length === 1);
+await page.screenshot({ path: SHOT('leave-blank') });
+await done();
+
 // Crop page 2
 await openEditor(card(0, 1));
 await page.keyboard.press('c');
 await drag([30, 150], [570, 500]);
 check('Crop shades what goes', (await page.$$('.pe-crop-shade')).length === 1);
 await done();
-await page.waitForFunction(() => document.querySelectorAll('.page img[src^="data:image/svg"]').length === 2);
+await page.waitForFunction(() => document.querySelectorAll('.page img[src^="data:image/svg"]').length === 3);
 bytes = await exportDoc(0);
 const cropped = (await lib.PDFDocument.load(bytes)).getPage(1).getCropBox();
 check('the PDF page is cropped', Math.abs(cropped.width - 540) < 2 && Math.abs(cropped.height - 350) < 2, JSON.stringify(cropped));
+text = await readText(bytes);
+check('Leave blank removed the heading too', !text[2].includes('alpha page 3') && !(await everything(bytes)).includes('alpha page 3') && text[2].includes('Line 0'));
 
 // Form filling
 await openEditor(card(1, 0));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as mupdf from 'mupdf';
-import { degrees, PDFDocument, StandardFonts } from 'pdf-lib';
+import { degrees, PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { Composer, type ComposeOptions, type ComposePage } from '../src/core/compose';
 import type { Mark } from '../src/core/marks';
@@ -75,6 +75,34 @@ describe('redaction', () => {
       expect(all, `rotation ${own}+${extra}`).not.toContain('4711');
       expect(await visibleText(out)).toContain('Public heading');
     }
+  });
+
+  it('can leave the page showing instead of a black box, and mix both on a page', async () => {
+    // A light blue page with "Name: moha" and, lower down, "Phone: 0123".
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([300, 200]);
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    page.drawRectangle({ x: 0, y: 0, width: 300, height: 200, color: rgb(0.9, 0.95, 1) });
+    page.drawText('Name: moha', { x: 20, y: 150, size: 14, font });
+    page.drawText('Phone: 0123', { x: 20, y: 60, size: 14, font });
+    const bytes = await doc.save();
+
+    // Boxes in page coordinates, top down: over "moha" (blank) and over "0123" (black).
+    const blank: Mark = { type: 'redact', id: 'b', x: 64, y: 34, width: 60, height: 24, blank: true };
+    const black: Mark = { type: 'redact', id: 'k', x: 66, y: 124, width: 60, height: 24 };
+    const out = await redact(bytes, [{ source: 'S', index: 0, rotation: 0, marks: [blank, black] }]);
+    const all = await everything(out);
+    expect(all).not.toContain('moha');
+    expect(all).not.toContain('0123');
+    expect(await visibleText(out)).toMatch(/Name:\s*Phone:/);
+
+    const rendered = mupdf.Document.openDocument(out, 'application/pdf').loadPage(0).toPixmap(mupdf.Matrix.identity, mupdf.ColorSpace.DeviceRGB, false, true);
+    const pixel = (x: number, y: number) => {
+      const index = y * rendered.getStride() + x * rendered.getNumberOfComponents();
+      return [...rendered.getPixels().slice(index, index + 3)];
+    };
+    expect(pixel(95, 46)).toEqual(pixel(250, 10)); // where "moha" was: the page's own blue
+    expect(pixel(95, 136)).toEqual([0, 0, 0]); // where "0123" was: black
   });
 
   it('leaves files without boxes untouched', async () => {

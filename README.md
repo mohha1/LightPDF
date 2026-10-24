@@ -83,7 +83,7 @@ Opening a page shows it large, with tools above it. What you add is drawn into t
 | **Draw** (<kbd>D</kbd>) | Freehand lines, in any colour and thickness. |
 | **Highlight** (<kbd>H</kbd>) | Drag across text to mark it, like a highlighter: the text stays readable. |
 | **Whiteout** (<kbd>W</kbd>) | Drag to cover something with a white (or any colour) box. It hides it on the page, but doesn't remove it from the file: use **Redact** for that. |
-| **Redact** (<kbd>X</kbd>) | Drag over what must go. At download, everything under the box (text, image pixels, drawings, links, form values) is removed from the file and the box turns black. See *Redaction* below. |
+| **Redact** (<kbd>X</kbd>) | Drag over what must go. At download, everything under the box (text, image pixels, drawings, links, form values) is removed from the file. The box turns black, or with **Leave blank** the page shows through as if it had never been written. See *Redaction* below. |
 | **Rectangle**, **Ellipse** (<kbd>R</kbd>, <kbd>E</kbd>) | Outlines, or filled with **Fill**. Hold <kbd>Shift</kbd> for a square or circle. |
 | **Line**, **Arrow** (<kbd>L</kbd>, <kbd>A</kbd>) | Hold <kbd>Shift</kbd> to keep to 45° steps. |
 | **Stamp** (<kbd>S</kbd>) | Click to place a framed stamp: APPROVED, DRAFT, CONFIDENTIAL, PAID and others, or your own text. |
@@ -135,7 +135,7 @@ Download settings are remembered in your browser, except **Delete originals**, w
 
 ### Redaction
 
-A redaction box removes content from the file rather than covering it. At download, links and form fields touching the box are taken off the page (and a field's value is cleared from the form too), [MuPDF](https://mupdf.com) removes every character any part of which lies under the box, blanks image pixels and removes drawings under it, and fills the box black. LightPDF then reads the page back: if any character is still under a box, the download stops with an error rather than give you a file that only looks redacted. The file is saved so that the removed content's old objects don't stay in it.
+A redaction box removes content from the file rather than covering it. At download, links and form fields touching the box are taken off the page (and a field's value is cleared from the form too), [MuPDF](https://mupdf.com) removes every character any part of which lies under the box, blanks image pixels and removes drawings under it, and fills the box black. With **Leave blank** (in the bar under the tools) nothing is drawn instead: "Name: moha" becomes "Name:" with the page's own background where the name was. Pictures under a blank box turn white there, since their pixels are removed. LightPDF then reads the page back: if any character is still under a box, the download stops with an error rather than give you a file that only looks redacted. The file is saved so that the removed content's old objects don't stay in it.
 
 A box doesn't reach the same words elsewhere: on other pages, in bookmarks or in the file's properties. Redact each place, and tick **Remove hidden data** for properties and metadata. Letters that only touch the edge of a box are removed too, so leave a little room around what should stay.
 

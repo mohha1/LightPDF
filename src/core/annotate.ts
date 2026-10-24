@@ -90,7 +90,7 @@ export class MarkPainter {
     const toUser = (point: Point) =>
       displayToUser(frame.box, frame.rotation, point.x * frame.scale, (frame.height - point.y) * frame.scale);
     const userRect = (mark: Mark): Rect => frameRect(frame, markBounds(mark));
-    const redactions = marks.filter((mark) => mark.type === 'redact').map(userRect);
+    const redactions = marks.flatMap((mark) => (mark.type === 'redact' ? [{ ...userRect(mark), blank: Boolean(mark.blank) }] : []));
     if (redactions.length) markForRedaction(page, redactions);
     const strokePath = (points: Point[][], color: string, lineWidth: number) => {
       // drawSvgPath flips y, so give it the page coordinates with y negated.
@@ -234,7 +234,7 @@ const round = (value: number) => Math.round(value * 1000) / 1000;
  * carry their content is removed now: annotations and form fields there (a
  * link's address, a field's value), and the page's embedded thumbnail.
  */
-function markForRedaction(page: PDFPage, rects: Rect[]): void {
+function markForRedaction(page: PDFPage, rects: Array<Rect & { blank: boolean }>): void {
   const context = page.doc.context;
   const annots = page.node.Annots();
   if (annots) {
@@ -250,8 +250,9 @@ function markForRedaction(page: PDFPage, rects: Rect[]): void {
     }
   }
   page.node.delete(PDFName.of('Thumb'));
-  for (const { x, y, width, height } of rects) {
-    const annot = context.obj({ Type: 'Annot', Subtype: 'Redact', Rect: [x, y, x + width, y + height], IC: [0, 0, 0] });
+  for (const { x, y, width, height, blank } of rects) {
+    // A black fill colour (/IC) asks for a black box; core/redact.ts leaves boxes without one blank.
+    const annot = context.obj({ Type: 'Annot', Subtype: 'Redact', Rect: [x, y, x + width, y + height], ...(blank ? {} : { IC: [0, 0, 0] }) });
     page.node.addAnnot(context.register(annot));
   }
 }

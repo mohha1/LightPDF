@@ -60,7 +60,7 @@ PDF files can be crafted to attack the software that opens them. LightPDF reduce
 A box drawn with **Redact** in the page editor removes content from the file; it doesn't cover it. At download:
 
 1. Annotations and form fields that touch a box are taken off the page, and a form field's value is cleared from the form as well (a link's address, a typed value). The page's embedded thumbnail picture is removed.
-2. MuPDF removes every character any part of which lies under a box, blanks the pixels of images under it, removes drawings it covers, and fills the box black.
+2. MuPDF removes every character any part of which lies under a box, blanks the pixels of images under it, removes drawings it covers, and fills the box black (or, with **Leave blank**, leaves the area empty so the page shows through; the removal is the same).
 3. LightPDF then reads the page back and looks for any character still under a box. If it finds one, the download stops with an error instead of producing a file that only looks redacted.
 4. The file is saved with garbage collection, so the objects the removed content lived in don't remain in the file.
 

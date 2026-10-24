@@ -66,4 +66,42 @@ describe('paper for blank redactions', () => {
     expect(Math.max(...values) - Math.min(...values)).toBeGreaterThan(2);
     expect(paperPatch(scan(), box, 3)).toEqual(patch);
   });
+
+  it('leaves no grey streaks from letters beside the box on a black-on-white scan', () => {
+    // Off-white office paper with fine noise; a line of "letters" (dark strokes,
+    // softened so their edges are grey) runs into the box from both sides.
+    const width = 240;
+    const height = 100;
+    const sharp = new Float64Array(width * height);
+    let seed = 11;
+    const noise = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648 - 0.5) * 6;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const letters = y >= 40 && y < 60 && ((x >= 30 && x < 80) || (x >= 160 && x < 210)) && x % 7 < 3;
+        sharp[y * width + x] = letters ? 15 : 246;
+      }
+    }
+    const pixels = new Uint8Array(width * height * 3);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        let sum = 0;
+        let count = 0;
+        for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            if (x + dx < 0 || y + dy < 0 || x + dx >= width || y + dy >= height) continue;
+            sum += sharp[(y + dy) * width + x + dx];
+            count++;
+          }
+        }
+        pixels.fill(Math.round(sum / count + noise()), (y * width + x) * 3, (y * width + x) * 3 + 3);
+      }
+    }
+    const area = { x: 80, y: 35, width: 80, height: 30 };
+    const patch = paperPatch({ pixels, width, height, stride: width * 3, channels: 3 }, area);
+    for (let y = 0; y < area.height; y++) {
+      let sum = 0;
+      for (let x = 0; x < area.width; x++) sum += patch[(y * area.width + x) * 3];
+      expect(Math.abs(sum / area.width - 246), `row ${y}`).toBeLessThan(1.5);
+    }
+  });
 });

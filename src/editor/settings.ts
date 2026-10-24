@@ -74,6 +74,16 @@ export const EXPORT_FIELDS: Field[] = [
     ],
   },
 
+  { type: 'section', key: 'privacySection', label: 'Privacy', showIf: isPdf },
+  {
+    type: 'checkbox',
+    key: 'removeHidden',
+    label: 'Remove hidden data',
+    default: false,
+    showIf: isPdf,
+    help: 'Takes out what can’t be seen on the pages: properties such as author and software, attached files, scripts, and old versions of edited content. Properties you set on a file are kept.',
+  },
+
   { type: 'section', key: 'afterSection', label: 'After saving' },
   {
     type: 'checkbox',
@@ -209,6 +219,7 @@ export interface ExportSettings {
   dpi: number;
   imageLayout: ImageLayout;
   flatten: boolean;
+  removeHidden: boolean;
   pageNumbers?: PageNumberOptions;
   watermark?: WatermarkOptions;
 }
@@ -233,6 +244,7 @@ export function toExportSettings(values: Values): ExportSettings {
       margin: IMAGE_MARGINS[String(values.imageMargin)] ?? 0,
     },
     flatten: Boolean(values.flatten),
+    removeHidden: format === 'pdf' && Boolean(values.removeHidden),
     pageNumbers:
       values.numbers && format !== 'txt'
         ? {

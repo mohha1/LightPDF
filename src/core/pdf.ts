@@ -1,4 +1,4 @@
-import { EncryptedPDFError, PDFDocument } from 'pdf-lib';
+import { EncryptedPDFError, PDFArray, PDFDocument, PDFName, type PDFPage } from 'pdf-lib';
 
 export type Bytes = Uint8Array;
 
@@ -26,6 +26,23 @@ export async function createPdf(): Promise<PDFDocument> {
   return doc;
 }
 
+/** A one-page PDF with nothing on it. */
+export async function blankPdf(width: number, height: number): Promise<Bytes> {
+  const doc = await createPdf();
+  doc.addPage([width, height]);
+  return savePdf(doc);
+}
+
 export async function savePdf(doc: PDFDocument): Promise<Bytes> {
   return doc.save({ useObjectStreams: true });
+}
+
+/**
+ * Copies of the same page made in one copyPages call share its /Contents
+ * array, and drawing appends to that array: page numbers or marks drawn on
+ * one copy would show on the others. Gives the page an array of its own.
+ */
+export function ownContents(page: PDFPage): void {
+  const contents = page.node.lookup(PDFName.of('Contents'));
+  if (contents instanceof PDFArray) page.node.set(PDFName.of('Contents'), contents.clone(page.doc.context));
 }

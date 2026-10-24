@@ -28,7 +28,7 @@ const PAGE_SIZES: Record<Exclude<PageSize, 'fit'>, [number, number]> = {
 };
 
 /** Images are treated as 96 DPI, so one pixel is 0.75 points. */
-const POINTS_PER_PIXEL = 0.75;
+export const POINTS_PER_PIXEL = 0.75;
 
 /** Works out the page size and where an image of the given pixel size goes on it. */
 export function placeImage(imageWidth: number, imageHeight: number, layout: ImageLayout): Placement {

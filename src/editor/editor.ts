@@ -15,6 +15,7 @@ import {
   type Destination,
   type PickedFile,
 } from '../browser/filesystem';
+import type { Mark } from '../core/marks';
 import { progressDialog, type DialogAction, type DialogState, type ProgressDialog } from '../ui/dialog';
 import { h, replaceChildren, type Child } from '../ui/dom';
 import type { Values } from '../ui/fields';
@@ -35,6 +36,9 @@ const ZOOM_KEY = 'lightpdf:zoom';
 const ZOOM = { min: 100, max: 260, default: 150 };
 /** Cards: the narrowest a card's inside may be (its four action buttons), and the page size on narrow screens. */
 const CARD = { minInner: 104, narrowThumb: 112, narrow: '(max-width: 800px)' };
+
+/** Thumbnails of pages with marks are drawn at most this many pixels on their long side. */
+const MARKED_THUMB = 520;
 
 class Cancelled extends Error {}
 
@@ -102,6 +106,9 @@ export function mountEditor(root: HTMLElement): void {
   let anchor: string | undefined;
   let opening = 0;
   let busy = false;
+  /** Pages on screen by key, for their thumbnails. */
+  let shown = new Map<string, model.PageRef>();
+  const markedThumbs = new WeakMap<readonly Mark[], Promise<string>>();
   const storedZoom = Number(readStorage(ZOOM_KEY));
   let zoom = storedZoom >= ZOOM.min && storedZoom <= ZOOM.max ? storedZoom : ZOOM.default;
 
@@ -241,6 +248,49 @@ export function mountEditor(root: HTMLElement): void {
     return model.pageKeys(project()).filter((key) => selection.has(key));
   }
 
+  /** Shows and edits a document's properties (title, author…) and what its file holds. */
+  async function showProperties(doc: model.Doc) {
+    if (busy) return;
+    busy = true;
+    closeMenu();
+    try {
+      const first = doc.pages.map((page) => registry.get(page.source)).find((source) => source?.kind === 'pdf' && !source.generated);
+      const [{ editProperties }, details] = await Promise.all([import('./properties'), first ? registry.details(first.id) : undefined]);
+      const info = await editProperties(doc.name, doc.info, details);
+      if (info) commit(model.setDocInfo(project(), doc.id, info));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'The properties could not be shown.');
+    } finally {
+      busy = false;
+    }
+  }
+
+  /**
+   * Inserts a blank page after `afterKey` (or at the end), the size and
+   * orientation of the page before it as shown.
+   */
+  async function insertBlank(afterKey?: string) {
+    const docs = project();
+    const lastDoc = docs.at(-1);
+    const before = afterKey
+      ? docs.flatMap((doc) => doc.pages).find((page) => page.key === afterKey)
+      : lastDoc?.pages.at(-1);
+    if (!before || busy) return;
+    busy = true;
+    try {
+      const size = await registry.pageSize(before.source, before.index);
+      const sideways = before.rotation % 180 !== 0;
+      const { blankPdf } = await import('../core/pdf');
+      const bytes = await blankPdf(sideways ? size.height : size.width, sideways ? size.width : size.height);
+      const source = await registry.addGenerated(bytes, 'Blank page.pdf');
+      commit(model.insertPages(project(), source.id, 1, before.key));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'The blank page could not be added.');
+    } finally {
+      busy = false;
+    }
+  }
+
   function deletePages(keys: Set<string>) {
     if (keys.size === 0) return;
     commit(model.deletePages(project(), keys));
@@ -289,6 +339,7 @@ export function mountEditor(root: HTMLElement): void {
     resizer = new ResizeObserver(layoutCards);
     resizer.observe(canvas);
     canvas.addEventListener('click', onCanvasClick);
+    canvas.addEventListener('dblclick', onCanvasDoubleClick);
     canvas.addEventListener('keydown', onCanvasKey);
     enablePageDrag(canvas, {
       keysFor: (key) => (selection.has(key) ? selectedInOrder() : [key]),
@@ -345,6 +396,13 @@ export function mountEditor(root: HTMLElement): void {
           : toolButton('Clear', clearSelection, { title: 'Clear selection (Esc)' }),
       ),
       group(
+        toolButton('Edit page', () => openPage(selectedInOrder()[0]), {
+          disabled: count !== 1,
+          title: 'Add text, drawings or images to the selected page (E, or double-click a page)',
+        }),
+        toolButton('Blank page', () => void insertBlank(selectedInOrder().at(-1)), {
+          title: none ? 'Add a blank page at the end' : 'Insert a blank page after the selected pages',
+        }),
         toolButton('Rotate left', () => commit(model.rotatePages(project(), selection, -90)), {
           disabled: none,
           title: 'Rotate selected pages left (Shift+R)',
@@ -439,7 +497,9 @@ export function mountEditor(root: HTMLElement): void {
           if (!entry.isIntersecting) continue;
           const img = entry.target as HTMLImageElement;
           io.unobserve(img);
-          registry.thumbnail(img.dataset.source!, Number(img.dataset.index)).then(
+          const page = shown.get(img.dataset.key!);
+          if (!page) continue;
+          thumbnail(page).then(
             (url) => (img.src = url),
             () => img.classList.add('thumb-failed'),
           );
@@ -450,9 +510,34 @@ export function mountEditor(root: HTMLElement): void {
     observer = io;
 
     const docs = project();
+    shown = new Map(docs.flatMap((doc) => doc.pages.map((page) => [page.key, page] as const)));
     replaceChildren(canvas, docs.map((doc, i) => renderDoc(doc, i, docs.length)));
     layoutCards();
     canvas.querySelectorAll<HTMLImageElement>('img[data-source]:not([src])').forEach((img) => io.observe(img));
+  }
+
+  /** A page's thumbnail, with what was added in the page editor drawn over it. */
+  function thumbnail(page: model.PageRef): Promise<string> {
+    const plain = registry.thumbnail(page.source, page.index);
+    const marks = page.marks;
+    if (!marks) return plain;
+    let marked = markedThumbs.get(marks);
+    if (!marked) {
+      // Only pages edited in the page editor need this, so it loads with it.
+      marked = Promise.all([plain, registry.pageSize(page.source, page.index), import('./marks-svg')]).then(
+        ([url, size, { markedThumbnail }]) => {
+          return markedThumbnail(url, size, marks, MARKED_THUMB);
+        },
+      );
+      markedThumbs.set(marks, marked);
+      marked.catch(() => markedThumbs.delete(marks));
+    }
+    return marked;
+  }
+
+  /** A thumbnail that can be shown straight away, if one is ready. */
+  function readyThumbnail(page: model.PageRef): string | undefined {
+    return page.marks ? undefined : registry.cachedThumbnail(page.source, page.index);
   }
 
   function docSelectionState(doc: model.Doc): string {
@@ -566,14 +651,20 @@ export function mountEditor(root: HTMLElement): void {
           class: 'thumb-img',
           alt: '',
           draggable: 'false',
-          src: registry.cachedThumbnail(page.source, page.index),
+          src: readyThumbnail(page),
           'data-source': page.source,
-          'data-index': page.index,
+          'data-key': page.key,
           style: `--rotation:${page.rotation}deg`,
         }),
       ),
       h('span', { class: 'page-check', 'aria-hidden': 'true' }, icon('check', 'icon icon-xs')),
-      h('div', { class: 'page-quick' }, quick('rotateRight', 'Rotate', 'page-rotate'), quick('trash', 'Delete', 'page-delete')),
+      h(
+        'div',
+        { class: 'page-quick' },
+        quick('edit', 'Edit', 'page-edit'),
+        quick('rotateRight', 'Rotate', 'page-rotate'),
+        quick('trash', 'Delete', 'page-delete'),
+      ),
       h('span', { class: 'page-grip', 'aria-hidden': 'true' }, icon('grip', 'icon icon-sm')),
       h('span', { class: 'page-number' }, String(position + 1)),
       !last &&
@@ -642,6 +733,45 @@ export function mountEditor(root: HTMLElement): void {
     }
   }
 
+  function onCanvasDoubleClick(event: MouseEvent) {
+    const element = event.target as HTMLElement;
+    const card = element.closest<HTMLElement>('.page');
+    if (card && !element.closest('button')) openPage(card.dataset.key!);
+  }
+
+  // ------------------------------------------------------------------ page editor
+
+  /** Opens the page editor on a page; the rest of the editor waits until it closes. */
+  function openPage(key: string | undefined) {
+    const doc = project().find((item) => item.pages.some((page) => page.key === key));
+    if (!doc || !key || busy) return;
+    busy = true;
+    closeMenu();
+    import('./page-editor').then(
+      ({ openPageEditor }) =>
+        openPageEditor({
+          registry,
+          doc,
+          pageKey: key,
+          onDone: (changes) => {
+            let next = project();
+            for (const [pageKey, edits] of changes) next = model.setPageEdits(next, pageKey, edits);
+            commit(next);
+            toast(`Changes kept on ${plural(changes.size, 'page')}.`, { label: 'Undo', run: undo });
+          },
+          onClose: () => {
+            busy = false;
+            canvas?.querySelector<HTMLElement>(`.page[data-key="${key}"]`)?.focus();
+          },
+        }),
+      (error) => {
+        busy = false;
+        console.error(error);
+        toast('The page editor could not be opened. Check your connection and try again.');
+      },
+    );
+  }
+
   // ------------------------------------------------------------------ card menu
 
   let closeMenu = () => {};
@@ -660,6 +790,8 @@ export function mountEditor(root: HTMLElement): void {
     const menu = h(
       'div',
       { class: 'menu', role: 'menu', 'aria-label': `More actions: ${doc.name}` },
+      item('Properties…', 'doc-properties', false),
+      item('Add a blank page at the end', 'doc-blank', false),
       item('Split into single pages', 'doc-explode', doc.pages.length < 2),
       item('Merge with the next file', 'doc-merge-next', index === docs.length - 1),
       item('Move left', 'doc-up', index === 0),
@@ -722,6 +854,8 @@ export function mountEditor(root: HTMLElement): void {
     const docKeys = new Set(doc.pages.map((page) => page.key));
 
     switch (action) {
+      case 'page-edit':
+        return openPage(key);
       case 'page-rotate':
         return commit(model.rotatePages(docs, new Set([key!]), 90));
       case 'page-delete':
@@ -735,6 +869,10 @@ export function mountEditor(root: HTMLElement): void {
       }
       case 'doc-rotate':
         return commit(model.rotatePages(docs, docKeys, 90));
+      case 'doc-properties':
+        return void showProperties(doc);
+      case 'doc-blank':
+        return void insertBlank(doc.pages.at(-1)?.key);
       case 'doc-explode':
         return commit(model.splitIntoPages(docs, doc.id));
       case 'doc-merge-next':
@@ -775,6 +913,13 @@ export function mountEditor(root: HTMLElement): void {
     } else if (!mod && !event.altKey && key === 'r' && selection.size > 0) {
       handled();
       commit(model.rotatePages(project(), selection, event.shiftKey ? -90 : 90));
+    } else if (!mod && !event.altKey && key === 'e') {
+      const focused = (event.target as HTMLElement).closest?.<HTMLElement>('.page');
+      const pageKey = focused?.dataset.key ?? (selection.size === 1 ? selectedInOrder()[0] : undefined);
+      if (pageKey) {
+        handled();
+        openPage(pageKey);
+      }
     }
   }
 
@@ -879,7 +1024,7 @@ export function mountEditor(root: HTMLElement): void {
     for (const id of new Set(docs.flatMap((doc) => doc.pages.map((page) => page.source)))) {
       const source = registry.get(id);
       if (source?.handle) handles.push(source.handle);
-      else if (source && !source.deleted) missing.push(source.file.name);
+      else if (source && !source.deleted && !source.generated) missing.push(source.file.name);
     }
     return { handles, missing };
   }

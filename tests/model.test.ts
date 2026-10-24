@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Mark } from '../src/core/marks';
 import {
   createDoc,
   deletePages,
@@ -13,6 +14,9 @@ import {
   removeDoc,
   renameDoc,
   rotatePages,
+  sameLayout,
+  insertPages,
+  setPageEdits,
   sortDocsByName,
   splitDoc,
   splitIntoPages,
@@ -151,3 +155,48 @@ describe('document operations', () => {
     expect(sortDocsByName(project)).toBe(project);
   });
 });
+
+describe('page editor marks', () => {
+  const note: Mark = { type: 'whiteout', id: 'm1', x: 1, y: 2, width: 3, height: 4, color: '#ffffff' };
+
+  it('sets and clears the marks of one page', () => {
+    const project = sample();
+    const key = project[0].pages[1].key;
+    const marked = setPageEdits(project, key, { marks: [note], fields: {} });
+    expect(marked[0].pages[1].marks).toEqual([note]);
+    expect(marked[1]).toBe(project[1]);
+    expect(sameLayout(project, marked)).toBe(false);
+    const cleared = setPageEdits(marked, key, { marks: [], fields: {} });
+    expect('marks' in cleared[0].pages[1]).toBe(false);
+  });
+
+  it('returns the same project when nothing changes', () => {
+    const project = sample();
+    const key = project[0].pages[0].key;
+    expect(setPageEdits(project, key, { marks: [], fields: {} })).toBe(project);
+    const edits = { marks: [note], fields: {} };
+    const marked = setPageEdits(project, key, edits);
+    expect(setPageEdits(marked, key, { ...edits, fields: marked[0].pages[0].fields ?? {} })).toBe(marked);
+  });
+
+  it('keeps marks on duplicated and extracted pages', () => {
+    const project = sample();
+    const key = project[0].pages[0].key;
+    const withMarks = setPageEdits(project, key, { marks: [note], fields: {} });
+    const duplicated = duplicatePages(withMarks, new Set([key]));
+    expect(duplicated[0].pages[1].marks).toEqual(withMarks[0].pages[0].marks);
+    const extracted = extractPages(withMarks, new Set([key]));
+    expect(extracted[1].pages[0].marks).toEqual(withMarks[0].pages[0].marks);
+  });
+});
+
+describe('insertPages', () => {
+  it('inserts after a page, or at the end of the last document', () => {
+    const project = sample();
+    const after = insertPages(project, 'Z', 1, project[0].pages[0].key);
+    expect(layout(after)).toEqual(['a: A.0 Z.0 A.1 A.2', 'b: B.0 B.1']);
+    expect(layout(insertPages(project, 'Z', 1))).toEqual(['a: A.0 A.1 A.2', 'b: B.0 B.1 Z.0']);
+    expect(insertPages(project, 'Z', 1, 'missing')).toBe(project);
+  });
+});
+

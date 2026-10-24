@@ -1041,6 +1041,265 @@ input[type='checkbox']:disabled {
   background: var(--fg);
 }
 
+/* ------------------------------------------------------------ page editor */
+
+/* A page opened for editing covers the app; the file cards wait underneath. */
+.page-editor-open {
+  overflow: hidden;
+}
+.page-editor {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  outline: none;
+}
+.pe-bar,
+.pe-tools,
+.pe-props {
+  flex: none;
+  display: flex;
+  align-items: center;
+  min-height: var(--toolbar-height);
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.pe-bar {
+  min-height: var(--header-height);
+}
+.pe-tools {
+  gap: 2px;
+}
+.pe-props {
+  min-height: 48px;
+}
+.pe-props .tool-group {
+  gap: 10px;
+}
+.pe-title {
+  padding: 0 7px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pe-name {
+  color: var(--muted);
+}
+.tool[aria-pressed='true'] {
+  background: var(--fg);
+  color: var(--bg);
+  text-decoration-line: none;
+}
+.pe-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.pe-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.pe-select {
+  width: auto;
+  height: 28px;
+  font-size: 12px;
+}
+.pe-hint {
+  padding-left: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.pe-swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--edge);
+  border-radius: 0;
+  background: var(--swatch);
+  cursor: pointer;
+}
+.pe-swatch[aria-pressed='true'] {
+  border-color: var(--bg);
+  box-shadow: 0 0 0 1px var(--fg);
+}
+.pe-custom input {
+  width: 32px;
+  height: 22px;
+  padding: 2px;
+}
+
+.pe-stage {
+  flex: 1;
+  display: flex;
+  overflow: auto;
+  padding: 24px;
+  background: var(--hover);
+  overscroll-behavior: contain;
+}
+.pe-sheet {
+  position: relative;
+  flex: none;
+  margin: auto;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--edge);
+  touch-action: none;
+  cursor: crosshair;
+}
+/* With Select, a finger on the page scrolls; marks and handles still drag. */
+.pe-sheet[data-tool='select'] {
+  touch-action: pan-x pan-y pinch-zoom;
+  cursor: default;
+}
+.pe-sheet[data-tool='text'] {
+  cursor: text;
+}
+.pe-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.pe-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.pe-sheet[data-tool='select'] .pe-mark {
+  cursor: move;
+  touch-action: none;
+}
+.pe-outline {
+  fill: none;
+  stroke: var(--fg);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.pe-outline-halo {
+  stroke: #fff;
+  stroke-width: 3;
+}
+.pe-handle {
+  fill: #fff;
+  stroke: var(--fg);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  touch-action: none;
+}
+.pe-handle-nw,
+.pe-handle-se {
+  cursor: nwse-resize;
+}
+.pe-handle-ne,
+.pe-handle-sw {
+  cursor: nesw-resize;
+}
+.pe-handle-from,
+.pe-handle-to {
+  cursor: move;
+}
+/* A box to redact shows what it covers while editing; it is solid black in the file. */
+.pe-redact {
+  fill: #000;
+  fill-opacity: 0.72;
+}
+/* Leave blank: what goes is crossed through, the page shows around it. */
+.pe-redact-blank {
+  fill: #fff;
+  fill-opacity: 0.55;
+  stroke: #000;
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+.pe-crop-shade {
+  fill: rgba(17, 17, 17, 0.45);
+  pointer-events: none;
+}
+.pe-crop-edge {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.pe-input {
+  width: 140px;
+  height: 28px;
+  font-size: 12px;
+}
+
+/* The PDF's own form fields, laid over the page. They take input with Select. */
+.pe-fields {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.pe-sheet[data-tool='select'] .pe-form {
+  pointer-events: auto;
+}
+.pe-form {
+  position: absolute;
+  margin: 0;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 0;
+  background: rgba(17, 17, 17, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(17, 17, 17, 0.35);
+  color: #000;
+  font: calc(var(--size) * var(--pe-scale, 1) * 1px) / 1.15 Helvetica, Arial, sans-serif;
+  resize: none;
+}
+.pe-form:focus {
+  outline: 2px solid var(--fg);
+  outline-offset: 0;
+  background: rgba(255, 255, 255, 0.9);
+}
+.pe-form:disabled {
+  background: transparent;
+  box-shadow: none;
+}
+.pe-form-checkbox,
+.pe-form-radio {
+  appearance: none;
+  padding: 0;
+  cursor: pointer;
+}
+.pe-form-checkbox:checked {
+  background: rgba(17, 17, 17, 0.06) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.pe-form-radio {
+  border-radius: 50%;
+}
+.pe-form-radio:checked {
+  background: radial-gradient(circle, #000 0 32%, rgba(17, 17, 17, 0.06) 36%);
+}
+
+/* Typing happens in a text box laid exactly over the text on the page. */
+.pe-text {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  outline: 1px dashed var(--fg);
+  outline-offset: 2px;
+  overflow: hidden;
+  resize: none;
+  white-space: pre;
+  transform-origin: 0 0;
+}
+
 /* ------------------------------------------------------------ overlays */
 
 .drop-overlay {
@@ -1079,6 +1338,12 @@ input[type='checkbox']:disabled {
   border: 1px solid var(--fg);
   background: var(--bg);
   box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.1);
+}
+.dialog-wide {
+  width: min(520px, 100%);
+}
+.properties-facts .field-section {
+  margin-top: 6px;
 }
 .dialog h2 {
   margin-bottom: 16px;
@@ -1232,8 +1497,21 @@ input[type='checkbox']:disabled {
 
 @media (max-width: 800px) {
   .site-header,
-  .editor-toolbar {
+  .editor-toolbar,
+  .pe-bar,
+  .pe-tools,
+  .pe-props {
     padding: 0 12px;
+  }
+  /* The page fits the screen; Done must stay in view. */
+  .pe-wide {
+    display: none;
+  }
+  .pe-bar {
+    flex-wrap: wrap;
+  }
+  .pe-stage {
+    padding: 12px;
   }
   .header-note {
     display: none;

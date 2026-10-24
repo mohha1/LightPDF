@@ -64,7 +64,7 @@ export function hexToRgb(hex: string): RGB {
   return rgb(((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255);
 }
 
-function measure(font: PDFFont, text: string, size: number): number {
+export function measure(font: PDFFont, text: string, size: number): number {
   try {
     return font.widthOfTextAtSize(text, size);
   } catch {

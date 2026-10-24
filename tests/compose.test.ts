@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { Composer, type ComposeOptions, type ComposeSource } from '../src/core/compose';
 import { fromBase64, JPEG_BASE64, makePdf, PNG_BASE64 } from './fixtures';
 
@@ -66,6 +67,21 @@ describe('Composer', () => {
       watermark: { text: 'DRAFT', fontSize: 30, color: '#ff0000', opacity: 0.3, rotation: 45, layout: 'tile' },
     }).compose([{ source: 'B', index: 0, rotation: 0 }], 'x');
     expect(stamped.length).toBeGreaterThan(plain.length + 200);
+  });
+
+  it('stamps each copy of a duplicated page with its own number', async () => {
+    const composer = new Composer(await sources(), {
+      ...OPTIONS,
+      pageNumbers: { position: 'bottom-center', margin: 20, startAt: 1, format: 'No. {n}', fontSize: 10, color: '#000000' },
+    });
+    const copies = { source: 'B', index: 0, rotation: 0 };
+    const doc = await pdfjs.getDocument({ data: await composer.compose([copies, copies], 'x'), verbosity: 0 }).promise;
+    const numbers: string[][] = [];
+    for (const number of [1, 2]) {
+      const content = await (await doc.getPage(number)).getTextContent();
+      numbers.push(content.items.flatMap((item) => ('str' in item && item.str.startsWith('No.') ? [item.str] : [])));
+    }
+    expect(numbers).toEqual([['No. 1'], ['No. 2']]);
   });
 
   it('flattens forms in sources before copying their pages', async () => {

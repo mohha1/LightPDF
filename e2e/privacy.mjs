@@ -1,4 +1,4 @@
-// Checks the claims in SECURITY.md: editing and exporting in every format makes
+// Checks the claims in SECURITY.md: editing (the page editor and redaction too) and exporting in every format makes
 // no request outside the app's origin, and works under the recommended CSP.
 // With BASE_URL pointing at the single-file build on disk (file://), only the
 // first check runs: there are no response headers to set a CSP with.
@@ -41,6 +41,24 @@ async function run(withCsp) {
   // jpx.pdf and ccitt.pdf need PDF.js's WebAssembly decoders.
   await page.setInputFiles('input[type=file]', ['alpha.pdf', 'photo.jpg', 'jpx.pdf', 'ccitt.pdf'].map((name) => `${FIXTURES}${name}`));
   await page.waitForFunction(() => document.querySelectorAll('.page img[src]').length === 6 && !document.querySelector('.status:not([hidden])'));
+  // The page editor: its marks, an added image (a blob: URL) and the marked thumbnail (a data: URL).
+  await page.dblclick('.page >> nth=0');
+  await page.waitForSelector('.page-editor .pe-canvas');
+  await page.keyboard.press('t');
+  const sheet = await page.$eval('.pe-sheet', (element) => element.getBoundingClientRect().toJSON());
+  await page.mouse.click(sheet.x + 60, sheet.y + 60);
+  await page.keyboard.type('Note');
+  await page.keyboard.press('Escape');
+  await page.setInputFiles('.page-editor input[type=file]', `${FIXTURES}shape.png`);
+  await page.waitForSelector('.pe-mark image');
+  // A box to redact: exporting loads MuPDF and its WebAssembly.
+  await page.keyboard.press('x');
+  await page.mouse.move(sheet.x + 20, sheet.y + 120);
+  await page.mouse.down();
+  await page.mouse.move(sheet.x + 200, sheet.y + 160, { steps: 5 });
+  await page.mouse.up();
+  await page.click('.pe-bar >> text=Done');
+  await page.waitForSelector('.page img[src^="data:image/svg"]');
   const formats = [];
   for (const option of [null, 'Recommended', 'JPG', 'PNG', 'Text']) {
     if (option) await page.click(`text=${option}`);

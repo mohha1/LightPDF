@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "jszip": "^3.10.2",
+    "mupdf": "^1.28.1",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.4.299"
   },

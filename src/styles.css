@@ -1342,6 +1342,12 @@ input[type='checkbox']:disabled {
 .dialog-wide {
   width: min(520px, 100%);
 }
+.dialog-line + .field {
+  margin-top: 16px;
+}
+.password-wrong {
+  margin-top: -6px;
+}
 .properties-facts .field-section {
   margin-top: 6px;
 }

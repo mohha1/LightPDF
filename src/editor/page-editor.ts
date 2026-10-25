@@ -25,7 +25,7 @@ import { h, replaceChildren, type Child } from '../ui/dom';
 import { toast } from '../ui/toast';
 import { History } from './history';
 import { renderMarks, svg } from './marks-svg';
-import { editsOf, type Doc, type PageEdits } from './model';
+import { editsOf, type Doc, type PageEdits, type PageRef } from './model';
 import type { FormField, SourceRegistry } from './sources';
 
 type Tool =
@@ -207,15 +207,16 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
   let loadToken = 0;
 
   const page = () => doc.pages[position];
-  const history = () => {
-    let draft = drafts.get(page().key);
+  const historyOf = (ref: PageRef) => {
+    let draft = drafts.get(ref.key);
     if (!draft) {
-      const initial = editsOf(page());
+      const initial = editsOf(ref);
       draft = { history: new History<PageEdits>(initial), initial };
-      drafts.set(page().key, draft);
+      drafts.set(ref.key, draft);
     }
     return draft.history;
   };
+  const history = () => historyOf(page());
   /** The page's marks as last committed. */
   const current = () => history().present.marks;
   const fieldValues = () => history().present.fields;
@@ -233,6 +234,22 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
   const fieldLayer = h('div', { class: 'pe-fields' });
   const sheet = h('div', { class: 'pe-sheet' }, overlay, fieldLayer);
   const stage = h('div', { class: 'pe-stage' }, sheet);
+  /** Words to find and mark for redaction; kept while the bar redraws. */
+  const findInput = h('input', {
+    class: 'input pe-input pe-find',
+    type: 'text',
+    enterkeyhint: 'search',
+    placeholder: 'e.g. a name',
+    'aria-label': 'Text to find and redact',
+    spellcheck: 'false',
+    onkeydown: (event: KeyboardEvent) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        void findAndMark();
+      }
+    },
+  });
+  let finding = false;
   const imageInput = h('input', {
     type: 'file',
     hidden: true,
@@ -518,6 +535,17 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
           }),
         ),
       );
+      if (tool === 'redact') {
+        parts.push(
+          group(
+            h('label', { class: 'pe-field' }, h('span', { class: 'pe-label' }, 'Find'), findInput),
+            button(finding ? 'Finding…' : 'Mark all', () => void findAndMark(), {
+              disabled: finding,
+              title: `Mark every place this text appears on the ${doc.pages.length === 1 ? 'page' : `${doc.pages.length} pages`} of ${doc.name}`,
+            }),
+          ),
+        );
+      }
     }
     if (kind === 'stamp') {
       const text = String(look.text);
@@ -696,6 +724,54 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
     draw();
     renderFields();
     renderBars();
+  }
+
+  /**
+   * Finds the text typed in Find on every page of the document and marks
+   * each place for redaction, in the look chosen for the next box. Places
+   * already marked aren't marked twice. Each page can undo its own marks.
+   */
+  async function findAndMark() {
+    const needle = findInput.value.trim();
+    if (!needle || finding) return;
+    finishText();
+    finding = true;
+    renderProps();
+    try {
+      const indices = new Map<string, number[]>();
+      for (const ref of doc.pages) indices.set(ref.source, [...(indices.get(ref.source) ?? []), ref.index]);
+      const found = new Map<string, Map<number, Rect[]>>();
+      for (const [source, list] of indices) found.set(source, await registry.findText(source, list, needle));
+      if (!root.isConnected) return;
+      let places = 0;
+      let pages = 0;
+      let already = 0;
+      for (const ref of doc.pages) {
+        const rects = found.get(ref.source)?.get(ref.index);
+        if (!rects) continue;
+        const draft = historyOf(ref);
+        const existing = draft.present.marks;
+        const added = rects
+          .map((rect) => ({ x: round(rect.x), y: round(rect.y), width: round(rect.width), height: round(rect.height) }))
+          .filter((rect) => !existing.some((mark) => mark.type === 'redact' && sameRect(mark, rect)));
+        already += rects.length - added.length;
+        if (added.length === 0) continue;
+        draft.push({ ...draft.present, marks: [...existing, ...added.map((rect): Mark => ({ type: 'redact', id: newId(), ...rect, blank: style.redact.blank }))] });
+        places += added.length;
+        pages++;
+      }
+      if (places) toast(`Marked ${plural(places, 'place')} on ${plural(pages, 'page')}. Check them before you download.`);
+      else if (already) toast(`Every “${needle}” is already marked.`);
+      else toast(`“${needle}” wasn’t found. Scanned pages can’t be searched: their text is a picture.`);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'The text could not be searched.');
+    } finally {
+      finding = false;
+      if (root.isConnected) {
+        draw();
+        renderBars();
+      }
+    }
   }
 
   /** Records a value typed or chosen in one of the PDF's form fields. */
@@ -1249,3 +1325,5 @@ export function openPageEditor({ registry, doc, pageKey, onDone, onClose }: Page
 }
 
 const round = (value: number) => Math.round(value * 100) / 100;
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
+const sameRect = (a: Rect, b: Rect) => [a.x - b.x, a.y - b.y, a.width - b.width, a.height - b.height].every((difference) => Math.abs(difference) < 0.5);

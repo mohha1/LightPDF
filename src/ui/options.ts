@@ -100,6 +100,7 @@ function renderControl(
         value: String(value ?? ''),
         placeholder: field.placeholder,
         autocomplete: 'off',
+        ...(field.secret && { spellcheck: 'false', autocapitalize: 'off', autocorrect: 'off' }),
         oninput: (event: Event) => set(field.key, (event.target as HTMLInputElement).value),
       });
 

@@ -2,8 +2,8 @@ LightPDF
 ========
 
 Private PDF tools that run entirely in your browser. Merge, split, reorder,
-rotate, edit, fill in, redact, compress and convert PDFs and images. Nothing
-is uploaded.
+rotate, edit, fill in, redact, compress, password-protect and convert PDFs
+and images. Nothing is uploaded.
 
 Source, documentation and security policy: https://github.com/mohha1/LightPDF
 

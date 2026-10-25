@@ -6,7 +6,7 @@
 </picture>
 
 <p><strong>Private PDF tools that run entirely in your browser.</strong><br>
-Merge, split, reorder, rotate, edit, fill in, redact, compress and convert PDFs and images. Nothing is uploaded.</p>
+Merge, split, reorder, rotate, edit, fill in, redact, compress, password-protect and convert PDFs and images. Nothing is uploaded.</p>
 
 [![CI](https://github.com/mohha1/LightPDF/actions/workflows/ci.yml/badge.svg)](https://github.com/mohha1/LightPDF/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111111?style=flat-square)](LICENSE)
@@ -29,7 +29,7 @@ Merge, split, reorder, rotate, edit, fill in, redact, compress and convert PDFs 
 - **One editor for everything.** Add any number of PDFs and images, see every page, and arrange them the way you want. Each document card is one output file, so what you see is what you get.
 - **Keeps what matters.** A PDF whose pages you leave in order is edited in place, so its bookmarks, links, form fields and metadata survive.
 - **Works offline.** After the first visit the app is cached on your device, and Chrome and Edge can install it like a desktop app.
-- **Small and fast.** The app shell is about 29 KB gzipped. The PDF engines load only when you need them; MuPDF, which redacts (about 5 MB), only when a download has something to redact.
+- **Small and fast.** The app shell is about 29 KB gzipped. The PDF engines load only when you need them; MuPDF (about 5 MB) only for redaction, finding text to redact, Compact compression and passwords.
 
 ## Features
 
@@ -37,9 +37,10 @@ Merge, split, reorder, rotate, edit, fill in, redact, compress and convert PDFs 
 | --- | --- |
 | **Organise** | Reorder, rotate, delete, duplicate and extract pages, insert blank pages. Drag pages between documents. |
 | **Edit pages** | Double-click a page to add text, freehand drawing, highlights, whiteout, rectangles, ellipses, lines, arrows, stamps, ticks, dates and images, or to crop it. |
-| **Redact** | Remove text, images and drawings under a box from the file for good, not just cover them. |
+| **Redact** | Remove text, images and drawings under a box from the file for good, not just cover them. Find a name or number to mark every place it appears. |
 | **Merge and split** | Merge everything into one file, merge two neighbours, split at any page or into single pages. |
-| **Compress** | Shrink scans and photo-heavy files. LightPDF never hands back a file bigger than the original. |
+| **Compress** | Make any PDF smaller without changing how it looks, or shrink scans and photo-heavy files a lot more by turning pages into images. LightPDF never hands back a file bigger than the original. |
+| **Passwords** | Open password-protected PDFs, and protect what you download with a password (AES-256). |
 | **Convert** | Export to PDF, JPG, PNG or plain text. Turn JPG, PNG and other images into PDF pages. |
 | **Stamp** | Add page numbers and a text watermark to every page. |
 | **Forms** | Fill in a PDF's form fields, and flatten them into the page. |
@@ -83,7 +84,7 @@ Opening a page shows it large, with tools above it. What you add is drawn into t
 | **Draw** (<kbd>D</kbd>) | Freehand lines, in any colour and thickness. |
 | **Highlight** (<kbd>H</kbd>) | Drag across text to mark it, like a highlighter: the text stays readable. |
 | **Whiteout** (<kbd>W</kbd>) | Drag to cover something with a white (or any colour) box. It hides it on the page, but doesn't remove it from the file: use **Redact** for that. |
-| **Redact** (<kbd>X</kbd>) | Drag over what must go. At download, everything under the box (text, image pixels, drawings, links, form values) is removed from the file. The box turns black, or with **Leave blank** the page shows through as if it had never been written. See *Redaction* below. |
+| **Redact** (<kbd>X</kbd>) | Drag over what must go. At download, everything under the box (text, image pixels, drawings, links, form values) is removed from the file. The box turns black, or with **Leave blank** the page shows through as if it had never been written. Type a word, name or number in **Find** and choose **Mark all** to box every place it appears on the document's pages. See *Redaction* below. |
 | **Rectangle**, **Ellipse** (<kbd>R</kbd>, <kbd>E</kbd>) | Outlines, or filled with **Fill**. Hold <kbd>Shift</kbd> for a square or circle. |
 | **Line**, **Arrow** (<kbd>L</kbd>, <kbd>A</kbd>) | Hold <kbd>Shift</kbd> to keep to 45° steps. |
 | **Stamp** (<kbd>S</kbd>) | Click to place a framed stamp: APPROVED, DRAFT, CONFIDENTIAL, PAID and others, or your own text. |
@@ -101,14 +102,15 @@ Edited pages show their changes in the thumbnails. Duplicating or extracting a p
 ### Download options
 
 - **Save as** PDF, JPG, PNG or plain text.
-- **Compression**: *None* keeps text and quality exactly as they are. *Recommended* and *Extreme* redraw each page as an image, which shrinks scans and photo-heavy files a lot but makes text no longer selectable.
+- **Compression**: *None* keeps the file exactly as built. *Compact* makes it smaller without changing how it looks: it drops unused and duplicated objects (pages of one file added twice share their fonts and images again), keeps only the letters each embedded font is used for (fonts of fillable forms stay whole), and compresses the rest. Text stays text. *Recommended* and *Extreme* redraw each page as an image, which shrinks scans and photo-heavy files a lot but makes text no longer selectable.
+- **Password** encrypts each PDF with AES-256, so the password is needed to open it. It is shown as you type, so you can check it; without it nobody can open the file. Commas can't be used (a limit of the MuPDF engine).
 - **Page numbers** and a **watermark** can be added to every page.
 - **Flatten form fields** locks filled-in answers into the page.
 - **Remove hidden data** takes out what can't be seen on the pages: properties such as author and software (except those you set in **Properties**), XMP metadata, attached files, scripts, and objects left over from earlier edits.
 - **Page size for images** (same as the image, A4 or Letter) appears when your documents contain images.
 - **Delete originals** removes the files you added from your computer once the result is saved or downloaded. See below.
 
-Download settings are remembered in your browser, except **Delete originals**, which is never remembered.
+Download settings are remembered in your browser, except **Delete originals** and **Password**, which are never remembered.
 
 <details>
 <summary><strong>How Delete originals works</strong></summary>
@@ -128,7 +130,7 @@ Download settings are remembered in your browser, except **Delete originals**, w
 
 - A document that is exactly one PDF, with its pages in their original order, is edited in place, so its bookmarks, links, form fields and metadata survive. Rotating pages or adding page numbers keeps this. Rearranging pages, or mixing pages from several files, builds a new PDF, and bookmarks and fillable form fields from the originals don't carry over. Flatten forms first if you need their contents.
 - **Text** output reads real text only. Scanned pages are pictures of text and need OCR, which LightPDF doesn't do yet.
-- Password-protected PDFs can't be opened yet; remove the password first.
+- Adding a password-protected PDF asks for its password. LightPDF works on an unlocked copy, so what you download has no password unless you set one in the Download panel. A PDF that opens without a password but forbids printing, copying or editing is opened as it is, and the result has no such restrictions.
 - Page numbers, watermarks and text from the page editor use the built-in PDF fonts, which cover Latin text.
 - **Whiteout and Crop don't remove anything.** What is underneath or outside is still in the file and can be copied or found by searching. Use **Redact** for confidential information.
 - Form values you type show in the page editor, not in the thumbnails.
@@ -137,7 +139,7 @@ Download settings are remembered in your browser, except **Delete originals**, w
 
 A redaction box removes content from the file rather than covering it. At download, links and form fields touching the box are taken off the page (and a field's value is cleared from the form too), [MuPDF](https://mupdf.com) removes every character the box reaches into (a letter beside it whose edge the box only grazes, by less than about a tenth of its width or height, stays), blanks image pixels and removes drawings under it, and fills the box black. With **Leave blank** (in the bar under the tools) nothing is drawn instead: "Name: moha" becomes "Name:" with the page's own background where the name was. On a scan or any page that is a picture (an old yellowed document, say), the removed pixels are replaced with paper made from the pixels just around the box (never from inside it): its colour, shading and grain, so there is no white hole. Letters next to the box, and their soft grey edges, are left out of it, so on an off-white office scan the patch is plain paper rather than grey streaks. Printed lines or patterns that cross the box are not continued through it. LightPDF then reads the page back: if any character is still under a box by more than such a graze, the download stops with an error rather than give you a file that only looks redacted. The file is saved so that the removed content's old objects don't stay in it.
 
-A box doesn't reach the same words elsewhere: on other pages, in bookmarks or in the file's properties. Redact each place, and tick **Remove hidden data** for properties and metadata. Letters that only touch the edge of a box are removed too, so leave a little room around what should stay.
+A box doesn't reach the same words elsewhere: on other pages, in bookmarks or in the file's properties. **Find** with **Mark all** boxes every place a word appears in the text of the document's pages (ignoring case), using the same engine that removes it, so the boxes cover exactly that text; check them before you download. It can't search scans, where the text is a picture, and doesn't look in bookmarks or properties: tick **Remove hidden data** for those. Letters that only touch the edge of a box are removed too, so leave a little room around what should stay.
 
 ## Browser support
 
@@ -211,7 +213,7 @@ npm run preview    # serve the production build on http://localhost:4173
 - **Vite + TypeScript**, no UI framework.
 - **[PDF.js](https://github.com/mozilla/pdf.js)** (Apache-2.0) opens files, renders thumbnails (only those scrolled into view) and page images, and extracts text. Its WebAssembly decoders, built from [OpenJPEG](https://github.com/uclouvain/openjpeg) (BSD-2-Clause) and PDFium's JBIG2 decoder (BSD-3-Clause), handle JPEG 2000 images and black-and-white scans (JBIG2, CCITT fax).
 - **[pdf-lib](https://github.com/Hopding/pdf-lib)** (MIT) edits and creates PDFs, and fills in forms.
-- **[MuPDF](https://mupdf.com)** (AGPL-3.0) redacts. Its WebAssembly is bundled gzipped and loaded only when a download has boxes to redact.
+- **[MuPDF](https://mupdf.com)** (AGPL-3.0) redacts, finds text to redact, compresses with *Compact*, and encrypts and unlocks PDFs. Its WebAssembly is bundled gzipped and loaded only when one of those is needed.
 - **[JSZip](https://github.com/Stuk/jszip)** (MIT) packs multiple results into one download.
 - A small service worker, generated at build time, caches the app for offline use.
 

@@ -1,5 +1,6 @@
 import { canDeleteFiles } from '../browser/filesystem';
 import type { ImageLayout, Orientation, PageSize } from '../core/images';
+import { passwordProblem } from '../core/protect';
 import type { PageNumberOptions, Position, WatermarkOptions } from '../core/stamp';
 import type { Field, Values } from '../ui/fields';
 
@@ -8,6 +9,9 @@ export const HAS_IMAGES = '_hasImages';
 
 /** Not remembered between visits, so files are never deleted by a setting someone forgot about. */
 export const DELETE_ORIGINALS = 'deleteOriginals';
+
+/** Not remembered either: a password never goes into the browser's storage. */
+export const NOT_REMEMBERED = [HAS_IMAGES, DELETE_ORIGINALS, 'protect', 'password'];
 
 const isPdf = (values: Values) => values.format === 'pdf';
 const makesPages = (values: Values) => values.format !== 'txt';
@@ -33,6 +37,7 @@ export const EXPORT_FIELDS: Field[] = [
     showIf: isPdf,
     choices: [
       { value: 'none', label: 'None', description: 'Best quality. Text stays selectable.' },
+      { value: 'lossless', label: 'Compact', description: 'Smaller, looks the same. Text stays selectable.' },
       { value: 'recommended', label: 'Recommended', description: 'Much smaller. Pages become images, so text can’t be selected.' },
       { value: 'extreme', label: 'Extreme', description: 'Smallest file, lower image quality. Pages become images.' },
     ],
@@ -82,6 +87,16 @@ export const EXPORT_FIELDS: Field[] = [
     default: false,
     showIf: isPdf,
     help: 'Takes out what can’t be seen on the pages: properties such as author and software, attached files, scripts, and old versions of edited content. Properties you set on a file are kept.',
+  },
+  { type: 'checkbox', key: 'protect', label: 'Password', default: false, showIf: isPdf },
+  {
+    type: 'text',
+    key: 'password',
+    label: 'Password to open the file',
+    default: '',
+    secret: true,
+    showIf: (values) => isPdf(values) && Boolean(values.protect),
+    help: 'Shown as you type, so you can check it. Without it nobody can open the file, LightPDF included. Encrypted with AES-256.',
   },
 
   { type: 'section', key: 'afterSection', label: 'After saving' },
@@ -214,23 +229,34 @@ export type Format = 'pdf' | 'jpg' | 'png' | 'txt';
 
 export interface ExportSettings {
   format: Format;
-  /** Raster settings for compression, or undefined to keep the PDF as it is. */
-  compression?: { dpi: number; quality: number };
+  /**
+   * 'lossless' rewrites the PDF smaller and keeps it looking the same; raster
+   * settings turn its pages into images; undefined keeps the PDF as it is.
+   */
+  compression?: 'lossless' | { dpi: number; quality: number };
   dpi: number;
   imageLayout: ImageLayout;
   flatten: boolean;
   removeHidden: boolean;
+  /** Encrypts PDFs so this password is needed to open them. */
+  password?: string;
   pageNumbers?: PageNumberOptions;
   watermark?: WatermarkOptions;
 }
 
 const COMPRESSION: Record<string, ExportSettings['compression']> = {
   none: undefined,
+  lossless: 'lossless',
   recommended: { dpi: 144, quality: 0.65 },
   extreme: { dpi: 96, quality: 0.45 },
 };
 
 const IMAGE_MARGINS: Record<string, number> = { none: 0, small: 20, big: 50 };
+
+/** What stops these settings from being used, if anything. */
+export function settingsProblem(values: Values): string | undefined {
+  return values.format === 'pdf' && values.protect ? passwordProblem(String(values.password)) : undefined;
+}
 
 export function toExportSettings(values: Values): ExportSettings {
   const format = values.format as Format;
@@ -245,6 +271,7 @@ export function toExportSettings(values: Values): ExportSettings {
     },
     flatten: Boolean(values.flatten),
     removeHidden: format === 'pdf' && Boolean(values.removeHidden),
+    password: format === 'pdf' && values.protect ? String(values.password) : undefined,
     pageNumbers:
       values.numbers && format !== 'txt'
         ? {

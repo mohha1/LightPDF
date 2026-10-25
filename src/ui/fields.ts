@@ -20,7 +20,7 @@ export type Field =
   | (FieldBase & { type: 'section' })
   | (FieldBase & { type: 'choice'; choices: Choice[]; default: string })
   | (FieldBase & { type: 'select'; choices: Choice[]; default: string })
-  | (FieldBase & { type: 'text'; placeholder?: string; default: string })
+  | (FieldBase & { type: 'text'; placeholder?: string; default: string; /** A password: no spelling or autocorrect help, which can send what is typed elsewhere. */ secret?: boolean })
   | (FieldBase & { type: 'number'; min?: number; max?: number; step?: number; default: number })
   | (FieldBase & { type: 'range'; min: number; max: number; step: number; unit?: string; default: number })
   | (FieldBase & { type: 'checkbox'; default: boolean; disabled?: boolean })

@@ -5,13 +5,15 @@ import { importMupdf } from './mupdf-module';
 let library: Promise<MuPDFLibrary> | undefined;
 
 /**
- * Loads MuPDF, which redacts, the first time it is needed. Its WebAssembly
- * ships gzipped with the app (never from another site) and is unzipped here.
+ * Loads MuPDF the first time it is needed: to redact, compress without
+ * turning pages into images, find text, and add or remove passwords. Its
+ * WebAssembly ships gzipped with the app (never from another site) and is
+ * unzipped here.
  */
 export function loadMupdf(): Promise<MuPDFLibrary> {
   library ??= (async () => {
     const response = await fetch(wasmUrl);
-    if (!response.ok) throw new Error('The redaction engine could not be loaded.');
+    if (!response.ok) throw new Error('Part of LightPDF (MuPDF) could not be loaded. Reload the page and try again.');
     let wasmBinary = await response.arrayBuffer();
     // Gzipped, unless a server already unzipped it on the way.
     const [first, second] = new Uint8Array(wasmBinary, 0, 2);

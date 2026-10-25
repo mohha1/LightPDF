@@ -26,6 +26,8 @@ export async function exportDocs(
     import('../browser/raster'),
     import('../browser/pdfjs'),
   ]);
+  // MuPDF only for what needs it: redaction, Compact, passwords.
+  const loadMupdf = () => import('../browser/mupdf').then(({ loadMupdf }) => loadMupdf());
 
   onProgress(0, 'Reading files');
   const sources = new Map<string, ComposeSource>();
@@ -54,19 +56,31 @@ export async function exportDocs(
     let pdf = await composer.compose(doc.pages, doc.name, doc.info);
     if (doc.pages.some((page) => page.marks?.some((mark) => mark.type === 'redact'))) {
       onProgress(position / docs.length, `Redacting ${doc.name}`);
-      const [{ loadMupdf }, { applyRedactions }] = await Promise.all([import('../browser/mupdf'), import('../core/redact')]);
-      pdf = applyRedactions(await loadMupdf(), pdf);
+      const [mupdf, { applyRedactions }] = await Promise.all([loadMupdf(), import('../core/redact')]);
+      pdf = applyRedactions(mupdf, pdf);
     }
 
     switch (settings.format) {
       case 'pdf': {
         let best = pdf;
-        if (settings.compression) {
+        if (settings.compression === 'lossless') {
+          onProgress(position / docs.length, `Compressing ${doc.name}`);
+          const [mupdf, { compactPdf }] = await Promise.all([loadMupdf(), import('../core/compact')]);
+          const compact = compactPdf(mupdf, pdf);
+          if (compact.length < pdf.length) best = compact;
+        } else if (settings.compression) {
           const compressed = await raster.rasterizePdf(pdf, settings.compression, step);
           // Never hand back a bigger file than compressing started with.
           if (compressed.length < pdf.length) best = compressed;
+        }
+        if (settings.compression) {
           before += pdf.length;
           after += best.length;
+        }
+        if (settings.password !== undefined) {
+          onProgress((position + 0.9) / docs.length, `Protecting ${doc.name}`);
+          const [mupdf, { encryptPdf }] = await Promise.all([loadMupdf(), import('../core/protect')]);
+          best = encryptPdf(mupdf, best, settings.password);
         }
         files.push(pdfOutput(names[0], best));
         break;

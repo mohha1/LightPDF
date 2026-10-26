@@ -1,6 +1,6 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { isPdf, readBytes } from '../browser/files';
-import { openPdf, renderPage, renderThumbnail } from '../browser/pdfjs';
+import { openPdf, PasswordRequired, renderPage, renderThumbnail } from '../browser/pdfjs';
 import { POINTS_PER_PIXEL } from '../core/images';
 import type { FieldValue, Rect, Size } from '../core/marks';
 
@@ -47,6 +47,12 @@ export interface FormField {
   maxLength?: number;
 }
 
+/**
+ * Asks for the password of a protected PDF. `check` says whether a password
+ * is right; resolves once it is, or with false when the person gives up.
+ */
+export type AskPassword = (name: string, check: (password: string) => boolean) => Promise<boolean>;
+
 /** Thumbnails are rendered once at this size and scaled with CSS for zooming. */
 const THUMB_SIZE = 260;
 /** How many thumbnails render at the same time. */
@@ -68,17 +74,38 @@ export class SourceRegistry {
   private queue: Array<() => void> = [];
   private active = 0;
 
-  /** Opens a file. Throws a readable error for damaged or protected PDFs. */
-  async add(original: File, handle?: FileSystemFileHandle): Promise<Source> {
+  /**
+   * Opens a file. A protected PDF is unlocked: with its password, asked with
+   * `askPassword`, or without one when it only restricts printing or editing.
+   * The editor keeps the unlocked copy. Throws a readable error for damaged
+   * PDFs, and for protected ones when no password is given.
+   */
+  async add(original: File, handle?: FileSystemFileHandle, askPassword?: AskPassword): Promise<Source> {
     const id = `s${++counter}`;
-    const bytes = await readBytes(original);
+    let bytes = await readBytes(original);
+    let pdf: PDFDocumentProxy | undefined;
+    if (isPdf(original)) {
+      try {
+        pdf = await openPdf(bytes);
+      } catch (error) {
+        if (!(error instanceof PasswordRequired)) throw error;
+        bytes = await unlock(bytes, original.name, askPassword);
+        pdf = await openPdf(bytes);
+      }
+      // Permissions only come with encryption: the file opens without a
+      // password but restricts printing or editing, and can't be edited as it is.
+      if ((await pdf.getPermissions()) !== null) {
+        void pdf.loadingTask.destroy();
+        bytes = await unlock(bytes, original.name);
+        pdf = await openPdf(bytes);
+      }
+    }
     const file = new File([bytes as Uint8Array<ArrayBuffer>], original.name, {
       type: original.type,
       lastModified: original.lastModified,
     });
     let source: Source;
-    if (isPdf(file)) {
-      const pdf = await openPdf(bytes);
+    if (pdf) {
       this.pdfs.set(id, pdf);
       source = { id, file, kind: 'pdf', pageCount: pdf.numPages, handle };
     } else {
@@ -210,6 +237,17 @@ export class SourceRegistry {
     };
   }
 
+  /**
+   * Where `needle` appears on pages of a PDF, ignoring case: rectangles in
+   * the marks' space by page index. Images have no text to find.
+   */
+  async findText(id: string, indices: readonly number[], needle: string): Promise<Map<number, Rect[]>> {
+    const source = this.sources.get(id);
+    if (source?.kind !== 'pdf' || source.generated) return new Map();
+    const [{ loadMupdf }, { findText }, bytes] = await Promise.all([import('../browser/mupdf'), import('../core/search'), readBytes(source.file)]);
+    return findText(await loadMupdf(), bytes, indices, needle);
+  }
+
   /** Adds a file LightPDF made itself, such as a blank page. */
   async addGenerated(bytes: Uint8Array, name: string): Promise<Source> {
     const source = await this.add(new File([bytes as Uint8Array<ArrayBuffer>], name, { type: 'application/pdf' }));
@@ -272,6 +310,19 @@ export class SourceRegistry {
       this.queue.shift()?.();
     }
   }
+}
+
+/**
+ * A protected PDF without its encryption. Without `askPassword`, it must open
+ * with no password (a file that only restricts printing or editing).
+ */
+async function unlock(bytes: Uint8Array, name: string, askPassword?: AskPassword): Promise<Uint8Array> {
+  const [{ loadMupdf }, { unlockPdf }] = await Promise.all([import('../browser/mupdf'), import('../core/protect')]);
+  const mupdf = await loadMupdf();
+  let unlocked = unlockPdf(mupdf, bytes, '');
+  if (!unlocked && askPassword) await askPassword(name, (password) => (unlocked = unlockPdf(mupdf, bytes, password)) !== undefined);
+  if (!unlocked) throw new Error('This PDF is password-protected and was not opened.');
+  return unlocked;
 }
 
 function loadImage(url: string, name: string): Promise<HTMLImageElement> {

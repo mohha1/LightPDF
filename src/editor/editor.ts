@@ -28,8 +28,8 @@ import { History } from './history';
 import { renderLanding } from './landing';
 import * as model from './model';
 import { outputNames, safeFileName } from './naming';
-import { DELETE_ORIGINALS, EXPORT_FIELDS, HAS_IMAGES, toExportSettings } from './settings';
-import { SourceRegistry } from './sources';
+import { DELETE_ORIGINALS, EXPORT_FIELDS, HAS_IMAGES, NOT_REMEMBERED, settingsProblem, toExportSettings } from './settings';
+import { SourceRegistry, type AskPassword } from './sources';
 
 const SETTINGS_KEY = 'lightpdf:export-settings';
 const ZOOM_KEY = 'lightpdf:zoom';
@@ -87,7 +87,7 @@ function initialValues(): Values {
   const stored = readStorage(SETTINGS_KEY);
   if (stored && typeof stored === 'object') {
     for (const [key, value] of Object.entries(stored)) {
-      if (key in values && key !== DELETE_ORIGINALS && typeof value === typeof values[key]) values[key] = value as Values[string];
+      if (key in values && !NOT_REMEMBERED.includes(key) && typeof value === typeof values[key]) values[key] = value as Values[string];
     }
   }
   return values;
@@ -186,7 +186,7 @@ export function mountEditor(root: HTMLElement): void {
 
     opening += usable.length;
     updateStatus();
-    const results = await Promise.allSettled(usable.map(({ file, handle }) => registry.add(file, handle)));
+    const results = await Promise.allSettled(usable.map(({ file, handle }) => registry.add(file, handle, askPassword)));
     opening -= usable.length;
     updateStatus();
 
@@ -217,6 +217,18 @@ export function mountEditor(root: HTMLElement): void {
       commit([...project(), ...docs]);
     }
   }
+
+  /** Password dialogs for files opened together come one after another. */
+  let passwordQueue = Promise.resolve();
+
+  const askPassword: AskPassword = (name, check) => {
+    const answer = passwordQueue.then(() => import('./password')).then((dialog) => dialog.askPassword(name, check));
+    passwordQueue = answer.then(
+      () => undefined,
+      () => undefined,
+    );
+    return answer;
+  };
 
   function updateStatus() {
     status.hidden = opening === 0;
@@ -939,7 +951,7 @@ export function mountEditor(root: HTMLElement): void {
         void requestAccess(originalsOf(project()).handles).then(updateWarning);
       }
       deleting = Boolean(values[DELETE_ORIGINALS]);
-      const remembered = Object.entries(values).filter(([key]) => key !== HAS_IMAGES && key !== DELETE_ORIGINALS);
+      const remembered = Object.entries(values).filter(([key]) => !NOT_REMEMBERED.includes(key));
       writeStorage(SETTINGS_KEY, Object.fromEntries(remembered));
       updateExportPanel();
     });
@@ -1077,6 +1089,11 @@ export function mountEditor(root: HTMLElement): void {
 
   async function runExport(docs: readonly model.Doc[], delivery: 'download' | 'save') {
     if (busy || docs.length === 0) return;
+    const problem = settingsProblem(values);
+    if (problem) {
+      toast(problem);
+      return;
+    }
     const settings = toExportSettings(values);
 
     // The save dialog has to open straight from the click, before any slow work.

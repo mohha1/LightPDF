@@ -34,6 +34,9 @@ class BinaryDataFactory {
   }
 }
 
+/** The PDF needs a password to open. */
+export class PasswordRequired extends Error {}
+
 export async function openPdf(bytes: Uint8Array): Promise<PDFDocumentProxy> {
   const lib = await pdfjs();
   try {
@@ -41,7 +44,7 @@ export async function openPdf(bytes: Uint8Array): Promise<PDFDocumentProxy> {
     return await lib.getDocument({ data: bytes.slice(), BinaryDataFactory }).promise;
   } catch (error) {
     if (error instanceof Error && error.name === 'PasswordException') {
-      throw new Error('This PDF is password-protected. Remove the password and try again.');
+      throw new PasswordRequired('This PDF is password-protected.');
     }
     throw new Error('This file could not be read as a PDF. It may be damaged or not a PDF.');
   }

@@ -211,6 +211,15 @@ body:has(.landing) .wordmark {
   margin: 0 auto;
   padding: 96px 20px 48px;
 }
+.landing-credit {
+  position: fixed;
+  right: 0;
+  bottom: 16px;
+  left: 0;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
 .landing-logo {
   margin: 0 0 32px;
   line-height: 0;

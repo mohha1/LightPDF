@@ -26,5 +26,6 @@ export function renderLanding(onSelect: () => void): HTMLElement {
       h('span', { class: 'btn btn-primary' }, 'Select files'),
       h('span', { class: 'dropzone-hint' }, 'or drop PDFs and images here'),
     ),
+    h('p', { class: 'landing-credit' }, 'Made by mohha1'),
   );
 }
